@@ -1,0 +1,485 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <!-- Dependency Status -->
+        <div class="dependency-status">
+            <h5><i class="bi bi-gear"></i> System Status</h5>
+            <div class="dependency-item">
+                <i class="bi bi-circle-fill text-{% if dependencies['yt-dlp'] %}success{% else %}danger{% endif %}"></i>
+                <span>yt-dlp: {% if dependencies['yt-dlp'] %}Installed{% else %}Not installed{% endif %}</span>
+            </div>
+            <div class="dependency-item">
+                <i class="bi bi-circle-fill text-{% if dependencies['ffmpeg'] %}success{% else %}danger{% endif %}"></i>
+                <span>ffmpeg: {% if dependencies['ffmpeg'] %}Installed{% else %}Not installed{% endif %}</span>
+            </div>
+            {% if not dependencies['yt-dlp'] or not dependencies['ffmpeg'] %}
+            <div class="alert alert-warning mt-2">
+                <i class="bi bi-exclamation-triangle"></i>
+                Some dependencies are missing. Please install them for full functionality.
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Input Mode Selection -->
+        <div class="form-section">
+            <h5><i class="bi bi-input-cursor"></i> Input Mode</h5>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="inputMode" id="modeSimple" value="simple" checked>
+                <label class="form-check-label" for="modeSimple">
+                    <i class="bi bi-link-45deg"></i> Simple URL
+                </label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="inputMode" id="modeJson" value="json">
+                <label class="form-check-label" for="modeJson">
+                    <i class="bi bi-code-square"></i> Advanced JSON
+                </label>
+            </div>
+        </div>
+
+        <!-- Simple Mode -->
+        <div id="simpleMode" class="mode-section active">
+            <div class="form-section">
+                <h5><i class="bi bi-link-45deg"></i> Video URL</h5>
+                <div class="mb-3">
+                    <input type="url" class="form-control" id="videoUrl" placeholder="https://youtube.com/watch?v=..." required>
+                    <div class="form-text">Enter the URL of the video you want to download</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- JSON Mode -->
+        <div id="jsonMode" class="mode-section">
+            <div class="form-section">
+                <h5><i class="bi bi-code-square"></i> JSON Configuration</h5>
+                <div class="mb-3">
+                    <textarea class="form-control json-textarea" id="jsonInput" rows="10" placeholder='{
+  "url": "https://example.com/video.m3u8",
+  "sourceType": "hls",
+  "headers": {
+    "Authorization": "Bearer your-token",
+    "Referer": "https://example.com"
+  },
+  "cookies": "session_id=abc123; auth_token=xyz789",
+  "userAgent": "Mozilla/5.0...",
+  "referer": "https://example.com/page"
+}'></textarea>
+                    <div class="form-text">Paste your JSON configuration from the Chrome extension or manual input</div>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="validateJsonBtn">
+                    <i class="bi bi-check-circle"></i> Validate JSON
+                </button>
+                <div id="jsonValidation" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Download Options -->
+        <div class="form-section">
+            <h5><i class="bi bi-sliders"></i> Download Options</h5>
+            <div class="row">
+                <div class="col-md-4">
+                    <label for="quality" class="form-label">Quality</label>
+                    <select class="form-select" id="quality">
+                        <option value="best">Best Available</option>
+                        <option value="medium">Medium (720p)</option>
+                        <option value="low">Low (480p)</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="format" class="form-label">Format</label>
+                    <select class="form-select" id="format">
+                        <option value="mp4">MP4</option>
+                        <option value="webm">WebM</option>
+                        <option value="mkv">MKV</option>
+                        <option value="avi">AVI</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="filename" class="form-label">Custom Filename (Optional)</label>
+                    <input type="text" class="form-control" id="filename" placeholder="my_video">
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="verbose">
+                        <label class="form-check-label" for="verbose">
+                            Verbose Output
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Button -->
+        <div class="text-center mb-4">
+            <button type="button" class="btn btn-primary btn-lg" id="downloadBtn">
+                <i class="bi bi-download"></i> Start Download
+            </button>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progressContainer" class="progress-container">
+            <div class="form-section">
+                <h5><i class="bi bi-hourglass-split"></i> Download Progress</h5>
+                <div class="progress mb-3">
+                    <div class="progress-bar" role="progressbar" style="width: 0%" id="progressBar"></div>
+                </div>
+                <div class="status-message" id="statusMessage">Initializing...</div>
+                <div class="mt-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="cancelBtn">
+                        <i class="bi bi-x-circle"></i> Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Section -->
+        <div id="downloadSection" class="download-section">
+            <div class="form-section">
+                <h5><i class="bi bi-check-circle text-success"></i> Download Complete</h5>
+                <p class="text-success">Your video has been downloaded successfully!</p>
+                <button type="button" class="btn btn-success" id="downloadFileBtn">
+                    <i class="bi bi-download"></i> Download File
+                </button>
+                <button type="button" class="btn btn-outline-secondary ms-2" id="newDownloadBtn">
+                    <i class="bi bi-plus-circle"></i> New Download
+                </button>
+            </div>
+        </div>
+
+        <!-- Error Section -->
+        <div id="errorSection" class="alert alert-danger" style="display: none;">
+            <h6><i class="bi bi-exclamation-triangle"></i> Download Failed</h6>
+            <div id="errorMessage"></div>
+            <button type="button" class="btn btn-outline-danger btn-sm mt-2" id="retryBtn">
+                <i class="bi bi-arrow-clockwise"></i> Retry
+            </button>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <!-- Job History -->
+        <div class="form-section">
+            <h5><i class="bi bi-clock-history"></i> Recent Downloads</h5>
+            <div id="jobHistory" class="job-history">
+                <div class="text-muted text-center">No recent downloads</div>
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="refreshHistoryBtn">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+
+        <!-- Help Section -->
+        <div class="form-section">
+            <h5><i class="bi bi-question-circle"></i> Help</h5>
+            <div class="accordion" id="helpAccordion">
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#helpSimple">
+                            Simple URL Mode
+                        </button>
+                    </h2>
+                    <div id="helpSimple" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                        <div class="accordion-body">
+                            <small>
+                                Just paste any video URL from supported platforms like YouTube, Vimeo, TikTok, etc.
+                                The downloader will automatically detect the best method to download the video.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#helpJson">
+                            Advanced JSON Mode
+                        </button>
+                    </h2>
+                    <div id="helpJson" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                        <div class="accordion-body">
+                            <small>
+                                Use this mode for protected videos that require authentication, cookies, or special headers.
+                                You can paste JSON directly from your Chrome extension or create it manually.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#helpSupported">
+                            Supported Sites
+                        </button>
+                    </h2>
+                    <div id="helpSupported" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                        <div class="accordion-body">
+                            <small>
+                                YouTube, Vimeo, TikTok, Twitter, Instagram, Twitch, Reddit, SoundCloud, 
+                                and many more. Also supports direct video streams (HLS, DASH, MP4).
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentJobId = null;
+let statusInterval = null;
+
+// Mode switching
+document.querySelectorAll('input[name="inputMode"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        document.querySelectorAll('.mode-section').forEach(section => {
+            section.classList.remove('active');
+        });
+        document.getElementById(this.value + 'Mode').classList.add('active');
+    });
+});
+
+// JSON validation
+document.getElementById('validateJsonBtn').addEventListener('click', function() {
+    const jsonInput = document.getElementById('jsonInput').value;
+    const validationDiv = document.getElementById('jsonValidation');
+    
+    if (!jsonInput.trim()) {
+        validationDiv.innerHTML = '<div class="alert alert-warning">Please enter JSON to validate</div>';
+        return;
+    }
+    
+    fetch('/api/validate-json', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({json_string: jsonInput})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.valid) {
+            validationDiv.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> Valid JSON</div>';
+        } else {
+            validationDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ${data.error}</div>`;
+        }
+    })
+    .catch(error => {
+        validationDiv.innerHTML = '<div class="alert alert-danger">Error validating JSON</div>';
+    });
+});
+
+// Download functionality
+document.getElementById('downloadBtn').addEventListener('click', function() {
+    const mode = document.querySelector('input[name="inputMode"]:checked').value;
+    let requestData = {
+        mode: mode,
+        quality: document.getElementById('quality').value,
+        format: document.getElementById('format').value,
+        filename: document.getElementById('filename').value,
+        verbose: document.getElementById('verbose').checked
+    };
+    
+    if (mode === 'simple') {
+        const url = document.getElementById('videoUrl').value.trim();
+        if (!url) {
+            alert('Please enter a video URL');
+            return;
+        }
+        requestData.url = url;
+    } else if (mode === 'json') {
+        const jsonInput = document.getElementById('jsonInput').value.trim();
+        if (!jsonInput) {
+            alert('Please enter JSON configuration');
+            return;
+        }
+        requestData.json_string = jsonInput;
+    }
+    
+    // Start download
+    fetch('/api/download', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            currentJobId = data.job_id;
+            showProgress();
+            startStatusPolling();
+        } else {
+            showError(data.error);
+        }
+    })
+    .catch(error => {
+        showError('Failed to start download: ' + error.message);
+    });
+});
+
+function showProgress() {
+    document.getElementById('progressContainer').style.display = 'block';
+    document.getElementById('downloadSection').style.display = 'none';
+    document.getElementById('errorSection').style.display = 'none';
+    document.getElementById('downloadBtn').disabled = true;
+}
+
+function showDownloadComplete() {
+    document.getElementById('progressContainer').style.display = 'none';
+    document.getElementById('downloadSection').style.display = 'block';
+    document.getElementById('errorSection').style.display = 'none';
+    document.getElementById('downloadBtn').disabled = false;
+    
+    // Set up download file button
+    document.getElementById('downloadFileBtn').onclick = function() {
+        window.open(`/api/download-file/${currentJobId}`, '_blank');
+    };
+}
+
+function showError(message) {
+    document.getElementById('progressContainer').style.display = 'none';
+    document.getElementById('downloadSection').style.display = 'none';
+    document.getElementById('errorSection').style.display = 'block';
+    document.getElementById('errorMessage').textContent = message;
+    document.getElementById('downloadBtn').disabled = false;
+    
+    if (statusInterval) {
+        clearInterval(statusInterval);
+        statusInterval = null;
+    }
+}
+
+function startStatusPolling() {
+    if (statusInterval) {
+        clearInterval(statusInterval);
+    }
+    
+    statusInterval = setInterval(function() {
+        if (!currentJobId) return;
+        
+        fetch(`/api/status/${currentJobId}`)
+        .then(response => response.json())
+        .then(data => {
+            updateProgress(data);
+            
+            if (data.status === 'completed') {
+                clearInterval(statusInterval);
+                statusInterval = null;
+                showDownloadComplete();
+                refreshJobHistory();
+            } else if (data.status === 'failed') {
+                clearInterval(statusInterval);
+                statusInterval = null;
+                showError(data.error || 'Download failed');
+                refreshJobHistory();
+            }
+        })
+        .catch(error => {
+            console.error('Error polling status:', error);
+        });
+    }, 1000);
+}
+
+function updateProgress(data) {
+    const progressBar = document.getElementById('progressBar');
+    const statusMessage = document.getElementById('statusMessage');
+    
+    progressBar.style.width = data.progress + '%';
+    progressBar.textContent = data.progress + '%';
+    statusMessage.textContent = data.message;
+    
+    // Update progress bar color based on status
+    progressBar.className = 'progress-bar';
+    if (data.status === 'completed') {
+        progressBar.classList.add('bg-success');
+    } else if (data.status === 'failed') {
+        progressBar.classList.add('bg-danger');
+    } else {
+        progressBar.classList.add('bg-primary');
+    }
+}
+
+// New download button
+document.getElementById('newDownloadBtn').addEventListener('click', function() {
+    document.getElementById('progressContainer').style.display = 'none';
+    document.getElementById('downloadSection').style.display = 'none';
+    document.getElementById('errorSection').style.display = 'none';
+    currentJobId = null;
+    
+    // Clear form
+    document.getElementById('videoUrl').value = '';
+    document.getElementById('jsonInput').value = '';
+    document.getElementById('filename').value = '';
+    document.getElementById('jsonValidation').innerHTML = '';
+});
+
+// Retry button
+document.getElementById('retryBtn').addEventListener('click', function() {
+    document.getElementById('downloadBtn').click();
+});
+
+// Cancel button
+document.getElementById('cancelBtn').addEventListener('click', function() {
+    if (statusInterval) {
+        clearInterval(statusInterval);
+        statusInterval = null;
+    }
+    
+    document.getElementById('progressContainer').style.display = 'none';
+    document.getElementById('downloadBtn').disabled = false;
+    currentJobId = null;
+});
+
+// Job history
+function refreshJobHistory() {
+    fetch('/api/jobs')
+    .then(response => response.json())
+    .then(jobs => {
+        const historyDiv = document.getElementById('jobHistory');
+        
+        if (jobs.length === 0) {
+            historyDiv.innerHTML = '<div class="text-muted text-center">No recent downloads</div>';
+            return;
+        }
+        
+        historyDiv.innerHTML = '';
+        jobs.slice(-5).reverse().forEach(job => {
+            const jobDiv = document.createElement('div');
+            jobDiv.className = `job-item ${job.status}`;
+            
+            const statusIcon = job.status === 'completed' ? 'check-circle' : 
+                              job.status === 'failed' ? 'x-circle' : 'hourglass-split';
+            
+            jobDiv.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <small class="text-muted">${new Date(job.created_at).toLocaleString()}</small>
+                        <div><i class="bi bi-${statusIcon}"></i> ${job.status}</div>
+                        <small>${job.message}</small>
+                    </div>
+                    <span class="badge bg-secondary">${job.job_id.substring(0, 8)}</span>
+                </div>
+            `;
+            
+            historyDiv.appendChild(jobDiv);
+        });
+    })
+    .catch(error => {
+        console.error('Error fetching job history:', error);
+    });
+}
+
+// Refresh history button
+document.getElementById('refreshHistoryBtn').addEventListener('click', refreshJobHistory);
+
+// Load job history on page load
+document.addEventListener('DOMContentLoaded', function() {
+    refreshJobHistory();
+});
+</script>
+{% endblock %}
