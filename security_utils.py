@@ -33,6 +33,7 @@ class InputValidator:
     # Maximum lengths for various inputs
     MAX_URL_LENGTH = 2048
     MAX_FILENAME_LENGTH = 255
+    MAX_TITLE_LENGTH = 255
     MAX_HEADER_VALUE_LENGTH = 8192
     MAX_COOKIE_LENGTH = 32768  # 32KB - increased for modern web apps with large cookies
     MAX_JSON_SIZE = 1024 * 1024  # 1MB
@@ -281,7 +282,29 @@ class InputValidator:
                 # For other standard fields, they have their own validation
                 # Safe display fields (like title) don't need command injection checking
         
+        # Validate and sanitize title if present
+        if 'title' in parsed:
+            title = parsed.get('title')
+            if isinstance(title, str):
+                if len(title) > InputValidator.MAX_TITLE_LENGTH:
+                    raise SecurityError(f"Title too long (max {InputValidator.MAX_TITLE_LENGTH} characters)")
+                parsed['title'] = InputValidator.sanitize_html_field(title)
+            elif title is not None: # Allow null title, but not other types
+                raise SecurityError("Title must be a string or null")
+
         return parsed
+
+    @staticmethod
+    def sanitize_html_field(text: str) -> str:
+        """Sanitize a string field by escaping HTML special characters."""
+        if not isinstance(text, str):
+            # Or raise an error, depending on desired strictness
+            return ""
+        return text.replace('&', '&amp;') \
+                   .replace('<', '&lt;') \
+                   .replace('>', '&gt;') \
+                   .replace('"', '&quot;') \
+                   .replace("'", '&#x27;')
 
     @staticmethod
     def validate_format(format_str: str) -> str:

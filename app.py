@@ -83,6 +83,15 @@ FILE_RETENTION_HOURS = get_int_env('FILE_RETENTION_HOURS', 2 if IS_PRODUCTION el
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
 LOG_FILE = os.environ.get('LOG_FILE', 'video_downloader.log')
 
+# Content Security Policy
+CSP_STRING = (
+    "default-src 'self'; "
+    "script-src 'self' https://cdn.jsdelivr.net; "
+    "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self' https://cdn.jsdelivr.net;"
+)
+
 # Import our existing video downloader
 from video_downloader import download_video, check_dependencies, get_available_formats, setup_output_directory
 # Import security utilities
@@ -586,6 +595,14 @@ def cleanup_stale_downloads():
 cleanup_thread = threading.Thread(target=periodic_cleanup)
 cleanup_thread.daemon = True
 cleanup_thread.start()
+
+@app.after_request
+def add_security_headers(response):
+    response.headers['Content-Security-Policy'] = CSP_STRING
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
 
 if __name__ == '__main__':
     logger.info(f"Starting Video Downloader Web Interface")
