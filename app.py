@@ -182,13 +182,21 @@ def download_worker(job_id):
         if not job:
             return
 
+    def update_progress(message):
+        """Update job progress message"""
+        with job_lock:
+            if job_id in jobs:
+                jobs[job_id].message = message
+
     try:
         job.status = 'downloading'
-        job.message = 'Starting download...'
+        update_progress('Initializing download...')
         
         # Create unique output directory for this job
         output_dir = DOWNLOADS_DIR / job_id
         output_dir.mkdir(exist_ok=True)
+        
+        update_progress('Extracting video information...')
         
         # Download the video with all advanced options
         result = download_video(
@@ -198,6 +206,7 @@ def download_worker(job_id):
             job.options.get('quality', 'best'),
             job.options.get('filename'),
             job.options.get('verbose', False),
+            progress_callback=update_progress,
             # Pass all advanced options
             videoQualityAdvanced=job.options.get('videoQualityAdvanced', ''),
             audioQuality=job.options.get('audioQuality', 'best'),

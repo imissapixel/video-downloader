@@ -196,39 +196,49 @@ def create_temp_cookies_file(cookies, url):
         return None
 
 def download_with_ytdlp(url, output_dir, format="mp4", quality="best", custom_filename=None,
-                        headers=None, cookies=None, referer=None, user_agent=None, verbose=False, **advanced_options):
+                        headers=None, cookies=None, referer=None, user_agent=None, verbose=False, progress_callback=None, **advanced_options):
     cookies_file = None
     
     # For YouTube URLs, try multiple approaches
     if is_youtube_url(url):
+        if progress_callback:
+            progress_callback("Analyzing YouTube video...")
         logger.info("YouTube URL detected. Trying multiple download strategies...")
         
         # Strategy 1: Try without cookies first (often works)
+        if progress_callback:
+            progress_callback("Attempting download without authentication...")
         result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
-                                    headers, None, referer, user_agent, verbose, strategy="no_auth")
+                                    headers, None, referer, user_agent, verbose, progress_callback, strategy="no_auth")
         if result["success"]:
             return result
         
         # Strategy 2: Try with provided cookies
         if cookies:
+            if progress_callback:
+                progress_callback("Attempting download with authentication...")
             logger.info("Trying with provided cookies...")
             result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
-                                        headers, cookies, referer, user_agent, verbose, strategy="with_cookies")
+                                        headers, cookies, referer, user_agent, verbose, progress_callback, strategy="with_cookies")
             if result["success"]:
                 return result
         
         # Strategy 3: Try with different client settings
+        if progress_callback:
+            progress_callback("Trying alternative download method...")
         logger.info("Trying with alternative client settings...")
         result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
-                                    headers, cookies, referer, user_agent, verbose, strategy="alternative")
+                                    headers, cookies, referer, user_agent, verbose, progress_callback, strategy="alternative")
         if result["success"]:
             return result
         
         # Strategy 4: Try browser cookies approach (if running on a system with Chrome)
         try:
+            if progress_callback:
+                progress_callback("Attempting browser cookie extraction...")
             logger.info("Trying with browser cookies extraction...")
             result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
-                                        headers, None, referer, user_agent, verbose, strategy="browser_cookies")
+                                        headers, None, referer, user_agent, verbose, progress_callback, strategy="browser_cookies")
             if result["success"]:
                 return result
         except Exception as e:
@@ -237,11 +247,13 @@ def download_with_ytdlp(url, output_dir, format="mp4", quality="best", custom_fi
         return {"success": False, "error": "All YouTube download strategies failed"}
     
     # For non-YouTube URLs, use the standard approach
+    if progress_callback:
+        progress_callback("Downloading media...")
     return _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
-                              headers, cookies, referer, user_agent, verbose, strategy="standard", **advanced_options)
+                              headers, cookies, referer, user_agent, verbose, progress_callback, strategy="standard", **advanced_options)
 
 def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_filename=None,
-                       headers=None, cookies=None, referer=None, user_agent=None, verbose=False, strategy="standard", **advanced_options):
+                       headers=None, cookies=None, referer=None, user_agent=None, verbose=False, progress_callback=None, strategy="standard", **advanced_options):
     cookies_file = None
     try:
         # Security: Validate all inputs
@@ -433,6 +445,9 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
         # Execute with security measures
         logger.debug(f"Executing yt-dlp command: {' '.join(cmd[:5])}... [URL hidden]")
         
+        if progress_callback:
+            progress_callback("Downloading media...")
+        
         # Use subprocess.run with timeout and security settings
         process = subprocess.Popen(
             cmd,
@@ -443,13 +458,53 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
             env={"PATH": os.environ.get("PATH", "")},  # Minimal environment
         )
         
+        # Monitor the process output for progress updates
+        download_started = False
         try:
+            while True:
+                # Check if process is still running
+                if process.poll() is not None:
+                    break
+                
+                # Read stderr line by line for progress info
+                try:
+                    import select
+                    import sys
+                    
+                    if sys.platform != 'win32':
+                        # Unix-like systems
+                        ready, _, _ = select.select([process.stderr], [], [], 0.1)
+                        if ready:
+                            line = process.stderr.readline()
+                            if line and progress_callback:
+                                line = line.strip()
+                                if '[download]' in line and '%' in line:
+                                    if not download_started:
+                                        progress_callback("Downloading media...")
+                                        download_started = True
+                                elif 'Merging formats' in line or 'Post-processing' in line:
+                                    progress_callback("Converting to H.264 and finalizing...")
+                                elif 'Deleting original file' in line:
+                                    progress_callback("Cleaning up temporary files...")
+                    else:
+                        # Windows - just wait a bit and update periodically
+                        import time
+                        time.sleep(0.5)
+                        if not download_started and progress_callback:
+                            progress_callback("Downloading media...")
+                            download_started = True
+                except:
+                    # If monitoring fails, just continue
+                    pass
+            
             stdout, stderr = process.communicate(timeout=1800)  # 30 minute timeout
         except subprocess.TimeoutExpired:
             process.kill()
             return {"success": False, "error": "Download timeout (30 minutes)"}
         
         if process.returncode == 0:
+            if progress_callback:
+                progress_callback("Download completed successfully")
             logger.info("Download completed successfully.")
             return {"success": True, "file": "Downloaded"}
         else:
@@ -476,7 +531,7 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
                 logger.warning(f"Failed to remove temporary cookies file: {e}")
 
 def download_with_ffmpeg(url, output_dir, format="mp4", custom_filename=None,
-                         headers=None, cookies=None, referer=None, user_agent=None, verbose=False):
+                         headers=None, cookies=None, referer=None, user_agent=None, verbose=False, progress_callback=None):
     try:
         # Security: Validate all inputs
         if not is_url(url):
@@ -547,6 +602,9 @@ def download_with_ffmpeg(url, output_dir, format="mp4", custom_filename=None,
         # Execute with security measures
         logger.debug(f"Executing ffmpeg command: {' '.join(cmd[:5])}... [URL hidden]")
         
+        if progress_callback:
+            progress_callback("Downloading media...")
+        
         # Use subprocess.run with timeout and security settings
         result = subprocess.run(
             cmd,
@@ -558,6 +616,9 @@ def download_with_ffmpeg(url, output_dir, format="mp4", custom_filename=None,
             env={"PATH": os.environ.get("PATH", "")},  # Minimal environment
             check=True
         )
+        
+        if progress_callback:
+            progress_callback("Download completed successfully")
         
         logger.info(f"Download completed: {output_file}")
         return {"success": True, "file": output_file}
@@ -692,7 +753,7 @@ def get_available_formats(url, headers=None, cookies=None, referer=None, user_ag
             'available_qualities': []
         }
 
-def download_video(stream_info, output_dir, format="mp4", quality="best", filename=None, verbose=False, **advanced_options):
+def download_video(stream_info, output_dir, format="mp4", quality="best", filename=None, verbose=False, progress_callback=None, **advanced_options):
     url = stream_info.get('url')
     if not url or not is_url(url):
         return {"success": False, "error": "Invalid or missing URL"}
@@ -741,34 +802,34 @@ def download_video(stream_info, output_dir, format="mp4", quality="best", filena
     # Try different download methods based on source type and available tools
     if source_type == 'youtube' or 'youtube.com' in url or 'youtu.be' in url or source_type == 'vimeo' or 'vimeo.com' in url:
         if has_ytdlp:
-            return download_with_ytdlp(url, output_dir, effective_format, effective_quality, filename, headers, cookies, referer, user_agent, verbose, **advanced_options)
+            return download_with_ytdlp(url, output_dir, effective_format, effective_quality, filename, headers, cookies, referer, user_agent, verbose, progress_callback, **advanced_options)
         else:
             return {"success": False, "error": "yt-dlp is required for this URL but not installed"}
     elif source_type == 'hls' or url.endswith('.m3u8') or source_type == 'dash' or url.endswith('.mpd'):
         if has_ffmpeg:
-            return download_with_ffmpeg(url, output_dir, format, filename, headers, cookies, referer, user_agent, verbose)
+            return download_with_ffmpeg(url, output_dir, format, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
         elif has_ytdlp:
             # Try yt-dlp as fallback for HLS/DASH
-            return download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose)
+            return download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
         else:
             return {"success": False, "error": "ffmpeg or yt-dlp is required for this URL but neither is installed"}
     elif is_supported_by_ytdlp(url):
         if has_ytdlp:
-            return download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose)
+            return download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
         else:
             return {"success": False, "error": "yt-dlp is required for this URL but not installed"}
     else:
         # For direct URLs or unknown types, try yt-dlp first, then ffmpeg
         if has_ytdlp:
             logger.info(f"Trying yt-dlp for URL: {url}")
-            result = download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose)
+            result = download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
             if result["success"]:
                 return result
             logger.info("yt-dlp failed, trying ffmpeg if available...")
         
         if has_ffmpeg:
             logger.info(f"Trying ffmpeg for URL: {url}")
-            return download_with_ffmpeg(url, output_dir, format, filename, headers, cookies, referer, user_agent, verbose)
+            return download_with_ffmpeg(url, output_dir, format, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
         
         # If we get here, either both failed or neither tool is available
         if has_ytdlp or has_ffmpeg:
