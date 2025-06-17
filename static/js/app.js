@@ -587,7 +587,7 @@ class VideoDownloader {
                             <span class="badge bg-secondary">${job.job_id.substring(0, 8)}</span>
                         </div>
                         <small class="text-muted d-block">${timeAgo}</small>
-                        {/* Placeholder for the message, will be filled below */}
+                        <small class="d-block text-wrap status-message-text" style="line-height: 1.3;">${displayMessage}</small>
                     </div>
                 </div>
                 ${showDownloadBtn ? `
@@ -601,17 +601,7 @@ class VideoDownloader {
             </div>
         `;
 
-        // Create and append the message element safely
-        const messageElement = document.createElement('small');
-        messageElement.className = 'd-block text-wrap';
-        messageElement.style.lineHeight = '1.3';
-        messageElement.textContent = displayMessage;
-
-        // Find the target div to append the message
-        const targetDiv = jobDiv.querySelector('.flex-grow-1');
-        if (targetDiv) {
-            targetDiv.appendChild(messageElement);
-        }
+        // Message is now included in the template above, no need to append separately
         
         // Add click handler for download button
         if (showDownloadBtn) {

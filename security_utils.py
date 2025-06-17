@@ -231,8 +231,8 @@ class InputValidator:
         
         # Basic cookie format validation - allow standard cookie characters including URL encoding
         # Allow URL-encoded characters (%XX), standard cookie chars, and common symbols used in cookies
-        # This includes: alphanumeric, underscore, dash, equals, semicolon, space, slash, plus, colon, ampersand, percent, tilde, parentheses
-        if not re.match(r'^[a-zA-Z0-9_\-=;. /+:&%~()A-F]+$', cookies):
+        # This includes: alphanumeric, underscore, dash, equals, semicolon, space, slash, plus, colon, ampersand, percent, tilde, parentheses, pipe
+        if not re.match(r'^[a-zA-Z0-9_\-=;. /+:&%~()|A-F]+$', cookies):
             raise SecurityError("Cookies contain invalid characters")
         
         return cookies
