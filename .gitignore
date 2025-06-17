@@ -1,0 +1,28 @@
+# Virtual environment
+video_downloader_env/
+venv/
+env/
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Downloaded files
+static/downloads/*
+!static/downloads/.gitkeep

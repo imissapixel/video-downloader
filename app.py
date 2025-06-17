@@ -2,6 +2,7 @@
 """
 Video Downloader Web Interface
 Flask-based web application for the video downloader with support for simple URLs and advanced JSON configurations
+Supports both development and production environments via environment variables
 """
 
 import os
@@ -9,33 +10,134 @@ import json
 import uuid
 import threading
 import time
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import logging
+from logging.handlers import RotatingFileHandler
+
+# Load environment variables from .env file if it exists
+def load_env_file():
+    env_file = Path('.env')
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ.setdefault(key.strip(), value.strip())
+
+load_env_file()
+
+# Configuration from environment variables
+def get_bool_env(key, default=False):
+    """Convert environment variable to boolean"""
+    value = os.environ.get(key, str(default)).lower()
+    return value in ('true', '1', 'yes', 'on')
+
+def get_int_env(key, default=0):
+    """Convert environment variable to integer"""
+    try:
+        return int(os.environ.get(key, default))
+    except ValueError:
+        return default
+
+def get_list_env(key, default=None):
+    """Convert comma-separated environment variable to list"""
+    if default is None:
+        default = []
+    value = os.environ.get(key, '')
+    return [item.strip() for item in value.split(',') if item.strip()] or default
+
+# Environment configuration
+FLASK_ENV = os.environ.get('FLASK_ENV', 'development')
+IS_PRODUCTION = FLASK_ENV == 'production'
+
+# Flask app configuration
+SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-this')
+if SECRET_KEY in ('your-secret-key-change-this', 'dev-secret-key-change-this') and IS_PRODUCTION:
+    raise ValueError("You must set a secure SECRET_KEY environment variable for production!")
+
+HOST = os.environ.get('HOST', '0.0.0.0')
+PORT = get_int_env('PORT', 80 if IS_PRODUCTION else 5000)
+DEBUG = get_bool_env('DEBUG', not IS_PRODUCTION)
+MAX_CONTENT_LENGTH = get_int_env('MAX_CONTENT_LENGTH', 16 * 1024 * 1024)
+
+# CORS configuration
+CORS_ORIGINS = get_list_env('CORS_ORIGINS', [
+    "chrome-extension://*", 
+    "moz-extension://*", 
+    "https://dl.xtend3d.com",
+    "http://localhost:5000"
+])
+
+# Download configuration
+DOWNLOADS_DIR = Path(os.environ.get('DOWNLOADS_DIR', 'static/downloads'))
+CLEANUP_INTERVAL = get_int_env('CLEANUP_INTERVAL', 3600)
+FILE_RETENTION_HOURS = get_int_env('FILE_RETENTION_HOURS', 2 if IS_PRODUCTION else 1)
+
+# Logging configuration
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+LOG_FILE = os.environ.get('LOG_FILE', 'video_downloader.log')
 
 # Import our existing video downloader
-from video_downloader import download_video, check_dependencies, setup_output_directory
+from video_downloader import download_video, check_dependencies, get_available_formats, setup_output_directory
+# Import security utilities
+from security_utils import validate_download_request, SecurityError, InputValidator
+# Import rate limiting
+from rate_limiter import rate_limit, security_rate_limit, rate_limiter
+# Import performance optimization
+from performance_optimizer import performance_monitor, get_performance_report
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-change-this'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['SECRET_KEY'] = SECRET_KEY
+app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 # Enable CORS for extension integration
-CORS(app, origins=["chrome-extension://*", "moz-extension://*", "https://dl.xtend3d.com"])
+CORS(app, origins=CORS_ORIGINS)
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+def setup_logging():
+    """Configure logging based on environment"""
+    log_level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
+    
+    if IS_PRODUCTION:
+        # Production logging with rotation
+        log_dir = Path(LOG_FILE).parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        file_handler = RotatingFileHandler(
+            LOG_FILE,
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=10
+        )
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+        ))
+        file_handler.setLevel(log_level)
+        
+        app.logger.addHandler(file_handler)
+        app.logger.setLevel(log_level)
+    else:
+        # Development logging
+        logging.basicConfig(level=log_level)
+    
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
 
 # Global job storage (in production, use Redis or database)
 jobs = {}
 job_lock = threading.Lock()
 
+# Track active downloads by URL to prevent duplicates
+active_downloads = {}  # url -> job_id
+active_downloads_lock = threading.Lock()
+
 # Create downloads directory
-DOWNLOADS_DIR = Path('static/downloads')
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 class DownloadJob:
@@ -52,9 +154,9 @@ class DownloadJob:
         self.completed_at = None
 
 def cleanup_old_files():
-    """Clean up files older than 1 hour"""
+    """Clean up files older than configured retention time"""
     try:
-        cutoff_time = datetime.now() - timedelta(hours=1)
+        cutoff_time = datetime.now() - timedelta(hours=FILE_RETENTION_HOURS)
         for file_path in DOWNLOADS_DIR.glob('*'):
             if file_path.is_file():
                 file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
@@ -79,14 +181,31 @@ def download_worker(job_id):
         output_dir = DOWNLOADS_DIR / job_id
         output_dir.mkdir(exist_ok=True)
         
-        # Download the video
+        # Download the video with all advanced options
         result = download_video(
             job.stream_info,
             str(output_dir),
             job.options.get('format', 'mp4'),
             job.options.get('quality', 'best'),
             job.options.get('filename'),
-            job.options.get('verbose', False)
+            job.options.get('verbose', False),
+            # Pass all advanced options
+            videoQualityAdvanced=job.options.get('videoQualityAdvanced', ''),
+            audioQuality=job.options.get('audioQuality', 'best'),
+            audioFormat=job.options.get('audioFormat', 'best'),
+            containerAdvanced=job.options.get('containerAdvanced', ''),
+            rateLimit=job.options.get('rateLimit', ''),
+            retries=job.options.get('retries', '10'),
+            concurrentFragments=job.options.get('concurrentFragments', '1'),
+            extractAudio=job.options.get('extractAudio', False),
+            embedSubs=job.options.get('embedSubs', False),
+            embedThumbnail=job.options.get('embedThumbnail', False),
+            embedMetadata=job.options.get('embedMetadata', False),
+            keepFragments=job.options.get('keepFragments', False),
+            writeSubs=job.options.get('writeSubs', False),
+            autoSubs=job.options.get('autoSubs', False),
+            subtitleLangs=job.options.get('subtitleLangs', ''),
+            subtitleFormat=job.options.get('subtitleFormat', 'best')
         )
         
         if result['success']:
@@ -112,6 +231,13 @@ def download_worker(job_id):
     
     finally:
         job.completed_at = datetime.now()
+        
+        # Clean up active downloads tracking
+        download_url = job.stream_info.get('url', '')
+        if download_url:
+            with active_downloads_lock:
+                if download_url in active_downloads and active_downloads[download_url] == job_id:
+                    del active_downloads[download_url]
 
 @app.route('/')
 def index():
@@ -121,108 +247,190 @@ def index():
     return render_template('index.html', dependencies=deps)
 
 @app.route('/api/check-deps')
+@rate_limit('requests')
 def check_deps():
     """API endpoint to check dependencies"""
     deps = check_dependencies()
     return jsonify(deps)
 
 @app.route('/api/validate-json', methods=['POST'])
+@rate_limit('requests')
 def validate_json():
-    """Validate JSON input"""
+    """Validate JSON input with security checks"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'valid': False, 'error': 'No data provided'})
+        
         json_str = data.get('json_string', '')
         
-        # Try to parse the JSON
-        parsed = json.loads(json_str)
+        # Use security validation
+        parsed = InputValidator.validate_json_input(json_str)
         
-        # Basic validation
-        if 'url' not in parsed:
-            return jsonify({'valid': False, 'error': 'JSON must contain a "url" field'})
+        # Additional validation for URL
+        parsed['url'] = InputValidator.validate_url(parsed['url'])
         
-        return jsonify({'valid': True, 'parsed': parsed})
+        # Validate optional fields
+        if 'headers' in parsed:
+            parsed['headers'] = InputValidator.validate_headers(parsed['headers'])
+        
+        if 'cookies' in parsed:
+            parsed['cookies'] = InputValidator.validate_cookies(parsed['cookies'])
+        
+        # Return sanitized version (without sensitive data in response)
+        safe_parsed = {
+            'url': parsed['url'],
+            'sourceType': parsed.get('sourceType', 'unknown'),
+            'hasHeaders': bool(parsed.get('headers')),
+            'hasCookies': bool(parsed.get('cookies')),
+            'hasReferer': bool(parsed.get('referer')),
+            'hasUserAgent': bool(parsed.get('userAgent'))
+        }
+        
+        return jsonify({'valid': True, 'parsed': safe_parsed})
     
+    except SecurityError as e:
+        logger.warning(f"Security validation failed: {e}")
+        return jsonify({'valid': False, 'error': str(e)})
     except json.JSONDecodeError as e:
         return jsonify({'valid': False, 'error': f'Invalid JSON: {str(e)}'})
     except Exception as e:
-        return jsonify({'valid': False, 'error': str(e)})
+        logger.exception("Unexpected error in JSON validation")
+        return jsonify({'valid': False, 'error': 'Validation failed'})
 
 @app.route('/api/download', methods=['POST'])
+@rate_limit('downloads')
 def start_download():
-    """Start a new download job"""
+    """Start a new download job with security validation and duplicate prevention"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'})
+        
+        # Comprehensive security validation
+        try:
+            validated_data = validate_download_request(data)
+        except SecurityError as e:
+            logger.warning(f"Security validation failed for download request: {e}")
+            return jsonify({'success': False, 'error': f'Security validation failed: {str(e)}'})
+        
+        # Extract validated data
+        stream_info = validated_data['stream_info']
+        download_url = stream_info.get('url', '')
+        
+        # Check for duplicate downloads (only for very recent requests within 30 seconds)
+        with active_downloads_lock:
+            if download_url in active_downloads:
+                existing_job_id = active_downloads[download_url]
+                # Check if the existing job is still active and recent
+                with job_lock:
+                    if existing_job_id in jobs:
+                        existing_job = jobs[existing_job_id]
+                        # Only prevent duplicates if job is active AND created within last 30 seconds
+                        time_since_created = (datetime.now() - existing_job.created_at).total_seconds()
+                        if existing_job.status in ['pending', 'downloading'] and time_since_created < 30:
+                            logger.info(f"Recent duplicate download request for {download_url}, returning existing job {existing_job_id}")
+                            return jsonify({'success': True, 'job_id': existing_job_id, 'duplicate': True})
+                        else:
+                            # Job completed/failed or too old, remove from active downloads
+                            logger.info(f"Removing stale download tracking for {download_url} (status: {existing_job.status}, age: {time_since_created}s)")
+                            del active_downloads[download_url]
         
         # Generate unique job ID
         job_id = str(uuid.uuid4())
         
-        # Parse input based on mode
-        mode = data.get('mode', 'simple')
-        
-        if mode == 'simple':
-            stream_info = {
-                'url': data.get('url', '').strip()
-            }
-            if not stream_info['url']:
-                return jsonify({'success': False, 'error': 'URL is required'})
-                
-        elif mode == 'json':
-            try:
-                stream_info = json.loads(data.get('json_string', '{}'))
-            except json.JSONDecodeError as e:
-                return jsonify({'success': False, 'error': f'Invalid JSON: {str(e)}'})
-                
-        else:
-            return jsonify({'success': False, 'error': 'Invalid mode'})
-        
-        # Extract options
         options = {
-            'format': data.get('format', 'mp4'),
-            'quality': data.get('quality', 'best'),
-            'filename': data.get('filename', '').strip() or None,
-            'verbose': data.get('verbose', False)
+            'format': validated_data['format'],
+            'quality': validated_data['quality'],
+            'filename': validated_data['filename'],
+            'verbose': validated_data['verbose'],
+            # Advanced options
+            'videoQualityAdvanced': validated_data.get('videoQualityAdvanced', ''),
+            'audioQuality': validated_data.get('audioQuality', 'best'),
+            'audioFormat': validated_data.get('audioFormat', 'best'),
+            'containerAdvanced': validated_data.get('containerAdvanced', ''),
+            'rateLimit': validated_data.get('rateLimit', ''),
+            'retries': validated_data.get('retries', '10'),
+            'concurrentFragments': validated_data.get('concurrentFragments', '1'),
+            'extractAudio': validated_data.get('extractAudio', False),
+            'embedSubs': validated_data.get('embedSubs', False),
+            'embedThumbnail': validated_data.get('embedThumbnail', False),
+            'embedMetadata': validated_data.get('embedMetadata', False),
+            'keepFragments': validated_data.get('keepFragments', False),
+            'writeSubs': validated_data.get('writeSubs', False),
+            'autoSubs': validated_data.get('autoSubs', False),
+            'subtitleLangs': validated_data.get('subtitleLangs', ''),
+            'subtitleFormat': validated_data.get('subtitleFormat', 'best')
         }
         
-        # Create job
+        # Create job with validated data
         job = DownloadJob(job_id, stream_info, options)
         
+        # Add to both job storage and active downloads
         with job_lock:
             jobs[job_id] = job
+        
+        with active_downloads_lock:
+            active_downloads[download_url] = job_id
         
         # Start download in background
         thread = threading.Thread(target=download_worker, args=(job_id,))
         thread.daemon = True
         thread.start()
         
+        logger.info(f"Started secure download job {job_id} for URL: {download_url}")
         return jsonify({'success': True, 'job_id': job_id})
         
+    except SecurityError as e:
+        logger.warning(f"Security error in download request: {e}")
+        return jsonify({'success': False, 'error': f'Security error: {str(e)}'})
     except Exception as e:
-        logger.exception("Error starting download")
-        return jsonify({'success': False, 'error': str(e)})
+        logger.exception("Unexpected error starting download")
+        return jsonify({'success': False, 'error': 'Download request failed'})
 
 @app.route('/api/status/<job_id>')
 def get_status(job_id):
     """Get status of a download job"""
+    # Validate job_id format (should be UUID)
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        return jsonify({'error': 'Invalid job ID format'}), 400
+    
     with job_lock:
         job = jobs.get(job_id)
         
     if not job:
         return jsonify({'error': 'Job not found'}), 404
     
+    # Sanitize error messages to prevent information leakage
+    error_message = job.error
+    if error_message:
+        # Remove potentially sensitive information from error messages
+        error_message = re.sub(r'/[^\s]*', '[PATH]', error_message)  # Remove file paths
+        error_message = re.sub(r'https?://[^\s]+', '[URL]', error_message)  # Remove URLs
+    
     return jsonify({
         'job_id': job.job_id,
         'status': job.status,
         'progress': job.progress,
         'message': job.message,
-        'error': job.error,
+        'error': error_message,
         'created_at': job.created_at.isoformat(),
         'completed_at': job.completed_at.isoformat() if job.completed_at else None,
         'has_file': bool(job.file_path and os.path.exists(job.file_path))
     })
 
 @app.route('/api/download-file/<job_id>')
+@rate_limit('requests')
 def download_file(job_id):
-    """Download the completed file"""
+    """Download the completed file with security checks"""
+    # Validate job_id format (should be UUID)
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        return jsonify({'error': 'Invalid job ID format'}), 400
+    
     with job_lock:
         job = jobs.get(job_id)
     
@@ -232,35 +440,147 @@ def download_file(job_id):
     if job.status != 'completed' or not job.file_path:
         return jsonify({'error': 'File not ready'}), 400
     
-    if not os.path.exists(job.file_path):
+    # Security: Validate file path is within expected directory
+    try:
+        file_path = Path(job.file_path).resolve()
+        downloads_dir = DOWNLOADS_DIR.resolve()
+        
+        # Ensure file is within downloads directory (prevent path traversal)
+        file_path.relative_to(downloads_dir)
+    except (ValueError, OSError):
+        logger.warning(f"Attempted access to file outside downloads directory: {job.file_path}")
+        return jsonify({'error': 'File access denied'}), 403
+    
+    if not file_path.exists():
         return jsonify({'error': 'File not found'}), 404
     
-    filename = os.path.basename(job.file_path)
-    return send_file(job.file_path, as_attachment=True, download_name=filename)
-
-@app.route('/api/jobs')
-def list_jobs():
-    """List all jobs (for debugging)"""
-    with job_lock:
-        job_list = []
-        for job in jobs.values():
-            job_list.append({
-                'job_id': job.job_id,
-                'status': job.status,
-                'message': job.message,
-                'created_at': job.created_at.isoformat()
-            })
+    # Sanitize filename for download
+    original_filename = file_path.name
+    safe_filename = InputValidator.validate_filename(original_filename)
+    if not safe_filename:
+        safe_filename = f"download_{job_id[:8]}.{file_path.suffix.lstrip('.')}"
     
-    return jsonify(job_list)
+    try:
+        return send_file(str(file_path), as_attachment=True, download_name=safe_filename)
+    except Exception as e:
+        logger.exception(f"Error sending file {file_path}: {e}")
+        return jsonify({'error': 'File download failed'}), 500
+
+@app.route('/api/get-formats', methods=['POST'])
+@rate_limit('requests')
+def get_formats():
+    """Get available video formats and qualities for a URL"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Validate and extract stream info
+        validated_data = validate_download_request(data)
+        stream_info = validated_data['stream_info']
+        
+        url = stream_info.get('url')
+        headers = stream_info.get('headers')
+        cookies = stream_info.get('cookies')
+        referer = stream_info.get('referer')
+        user_agent = stream_info.get('userAgent')
+        
+        # Get available formats
+        formats_result = get_available_formats(url, headers, cookies, referer, user_agent)
+        
+        if formats_result['success']:
+            return jsonify({
+                'success': True,
+                'available_qualities': formats_result['available_qualities'],
+                'url': url
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': formats_result['error'],
+                'available_qualities': []
+            })
+            
+    except SecurityError as e:
+        logger.warning(f"Security validation failed for format detection: {e}")
+        return jsonify({'error': f'Security validation failed: {e}'}), 400
+    except Exception as e:
+        logger.error(f"Error getting formats: {e}")
+        return jsonify({'error': 'Failed to get available formats'}), 500
+
+@app.route('/api/rate-limit-status')
+@rate_limit('requests')
+def get_rate_limit_status():
+    """Get current rate limit status for the client"""
+    try:
+        ip = rate_limiter.get_client_ip()
+        status = rate_limiter.get_rate_limit_status(ip)
+        return jsonify(status)
+    except Exception as e:
+        logger.exception("Error getting rate limit status")
+        return jsonify({'error': 'Unable to get rate limit status'}), 500
+
+@app.route('/api/performance-stats')
+@rate_limit('requests')
+def get_performance_stats():
+    """Get performance statistics (admin endpoint)"""
+    try:
+        stats = get_performance_report()
+        
+        # Add active downloads info
+        with active_downloads_lock:
+            stats['active_downloads'] = len(active_downloads)
+            
+        with job_lock:
+            active_jobs = sum(1 for job in jobs.values() if job.status in ['pending', 'downloading'])
+            stats['active_jobs'] = active_jobs
+            
+        return jsonify(stats)
+    except Exception as e:
+        logger.exception("Error getting performance stats")
+        return jsonify({'error': 'Unable to get performance stats'}), 500
+
+# SECURITY: Removed public job listing endpoint to prevent data leakage
+# Job history is now handled client-side using localStorage
 
 # Cleanup old files on startup and periodically
 cleanup_old_files()
 
 def periodic_cleanup():
-    """Run cleanup every hour"""
+    """Run cleanup at configured intervals"""
     while True:
-        time.sleep(3600)  # 1 hour
+        time.sleep(CLEANUP_INTERVAL)
         cleanup_old_files()
+        cleanup_stale_downloads()
+
+def cleanup_stale_downloads():
+    """Clean up stale active downloads that may have been orphaned"""
+    try:
+        current_time = datetime.now()
+        stale_urls = []
+        
+        with active_downloads_lock:
+            for url, job_id in active_downloads.items():
+                with job_lock:
+                    job = jobs.get(job_id)
+                    if not job:
+                        # Job doesn't exist, mark URL as stale
+                        stale_urls.append(url)
+                    elif job.completed_at and (current_time - job.completed_at).total_seconds() > 300:  # 5 minutes
+                        # Job completed more than 5 minutes ago, clean up
+                        stale_urls.append(url)
+                    elif job.created_at and (current_time - job.created_at).total_seconds() > 3600:  # 1 hour
+                        # Job is too old, likely stuck, clean up
+                        stale_urls.append(url)
+            
+            # Remove stale URLs
+            for url in stale_urls:
+                if url in active_downloads:
+                    logger.info(f"Cleaning up stale download tracking for URL: {url}")
+                    del active_downloads[url]
+                    
+    except Exception as e:
+        logger.exception("Error during stale download cleanup")
 
 # Start cleanup thread
 cleanup_thread = threading.Thread(target=periodic_cleanup)
@@ -268,4 +588,11 @@ cleanup_thread.daemon = True
 cleanup_thread.start()
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    logger.info(f"Starting Video Downloader Web Interface")
+    logger.info(f"Environment: {FLASK_ENV}")
+    logger.info(f"Debug mode: {DEBUG}")
+    logger.info(f"Host: {HOST}:{PORT}")
+    logger.info(f"Downloads directory: {DOWNLOADS_DIR}")
+    logger.info(f"File retention: {FILE_RETENTION_HOURS} hours")
+    
+    app.run(debug=DEBUG, host=HOST, port=PORT)

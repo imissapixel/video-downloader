@@ -9,6 +9,7 @@ import json
 import uuid
 import threading
 import time
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
@@ -20,6 +21,12 @@ from logging.handlers import RotatingFileHandler
 # Import our existing video downloader
 from video_downloader import download_video, check_dependencies, setup_output_directory
 from deployment_config import config
+# Import security utilities
+from security_utils import validate_download_request, SecurityError, InputValidator
+# Import rate limiting
+from rate_limiter import rate_limit, security_rate_limit, rate_limiter
+# Import performance optimization
+from performance_optimizer import performance_monitor, get_performance_report
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
@@ -170,69 +177,86 @@ def health_check():
     })
 
 @app.route('/api/check-deps')
+@rate_limit('requests')
 def check_deps():
     """API endpoint to check dependencies"""
     deps = check_dependencies()
     return jsonify(deps)
 
 @app.route('/api/validate-json', methods=['POST'])
+@rate_limit('requests')
 def validate_json():
-    """Validate JSON input"""
+    """Validate JSON input with security checks"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'valid': False, 'error': 'No data provided'})
+        
         json_str = data.get('json_string', '')
         
-        # Try to parse the JSON
-        parsed = json.loads(json_str)
+        # Use security validation
+        parsed = InputValidator.validate_json_input(json_str)
         
-        # Basic validation
-        if 'url' not in parsed:
-            return jsonify({'valid': False, 'error': 'JSON must contain a "url" field'})
+        # Additional validation for URL
+        parsed['url'] = InputValidator.validate_url(parsed['url'])
         
-        return jsonify({'valid': True, 'parsed': parsed})
+        # Validate optional fields
+        if 'headers' in parsed:
+            parsed['headers'] = InputValidator.validate_headers(parsed['headers'])
+        
+        if 'cookies' in parsed:
+            parsed['cookies'] = InputValidator.validate_cookies(parsed['cookies'])
+        
+        # Return sanitized version (without sensitive data in response)
+        safe_parsed = {
+            'url': parsed['url'],
+            'sourceType': parsed.get('sourceType', 'unknown'),
+            'hasHeaders': bool(parsed.get('headers')),
+            'hasCookies': bool(parsed.get('cookies')),
+            'hasReferer': bool(parsed.get('referer')),
+            'hasUserAgent': bool(parsed.get('userAgent'))
+        }
+        
+        return jsonify({'valid': True, 'parsed': safe_parsed})
     
+    except SecurityError as e:
+        logger.warning(f"Security validation failed: {e}")
+        return jsonify({'valid': False, 'error': str(e)})
     except json.JSONDecodeError as e:
         return jsonify({'valid': False, 'error': f'Invalid JSON: {str(e)}'})
     except Exception as e:
-        return jsonify({'valid': False, 'error': str(e)})
+        logger.exception("Unexpected error in JSON validation")
+        return jsonify({'valid': False, 'error': 'Validation failed'})
 
 @app.route('/api/download', methods=['POST'])
+@rate_limit('downloads')
 def start_download():
-    """Start a new download job"""
+    """Start a new download job with security validation"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'})
+        
+        # Comprehensive security validation
+        try:
+            validated_data = validate_download_request(data)
+        except SecurityError as e:
+            logger.warning(f"Security validation failed for download request: {e}")
+            return jsonify({'success': False, 'error': f'Security validation failed: {str(e)}'})
         
         # Generate unique job ID
         job_id = str(uuid.uuid4())
         
-        # Parse input based on mode
-        mode = data.get('mode', 'simple')
-        
-        if mode == 'simple':
-            stream_info = {
-                'url': data.get('url', '').strip()
-            }
-            if not stream_info['url']:
-                return jsonify({'success': False, 'error': 'URL is required'})
-                
-        elif mode == 'json':
-            try:
-                stream_info = json.loads(data.get('json_string', '{}'))
-            except json.JSONDecodeError as e:
-                return jsonify({'success': False, 'error': f'Invalid JSON: {str(e)}'})
-                
-        else:
-            return jsonify({'success': False, 'error': 'Invalid mode'})
-        
-        # Extract options
+        # Extract validated data
+        stream_info = validated_data['stream_info']
         options = {
-            'format': data.get('format', 'mp4'),
-            'quality': data.get('quality', 'best'),
-            'filename': data.get('filename', '').strip() or None,
-            'verbose': data.get('verbose', False)
+            'format': validated_data['format'],
+            'quality': validated_data['quality'],
+            'filename': validated_data['filename'],
+            'verbose': validated_data['verbose']
         }
         
-        # Create job
+        # Create job with validated data
         job = DownloadJob(job_id, stream_info, options)
         
         with job_lock:
@@ -243,36 +267,60 @@ def start_download():
         thread.daemon = True
         thread.start()
         
-        logger.info(f"Started download job {job_id} for URL: {stream_info.get('url', 'unknown')}")
+        logger.info(f"Started secure download job {job_id} for URL: {stream_info.get('url', 'unknown')}")
         return jsonify({'success': True, 'job_id': job_id})
         
+    except SecurityError as e:
+        logger.warning(f"Security error in download request: {e}")
+        return jsonify({'success': False, 'error': f'Security error: {str(e)}'})
     except Exception as e:
-        logger.exception("Error starting download")
-        return jsonify({'success': False, 'error': str(e)})
+        logger.exception("Unexpected error starting download")
+        return jsonify({'success': False, 'error': 'Download request failed'})
 
 @app.route('/api/status/<job_id>')
+@rate_limit('requests')
 def get_status(job_id):
     """Get status of a download job"""
+    # Validate job_id format (should be UUID)
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        return jsonify({'error': 'Invalid job ID format'}), 400
+    
     with job_lock:
         job = jobs.get(job_id)
         
     if not job:
         return jsonify({'error': 'Job not found'}), 404
     
+    # Sanitize error messages to prevent information leakage
+    error_message = job.error
+    if error_message:
+        # Remove potentially sensitive information from error messages
+        error_message = re.sub(r'/[^\s]*', '[PATH]', error_message)  # Remove file paths
+        error_message = re.sub(r'https?://[^\s]+', '[URL]', error_message)  # Remove URLs
+    
     return jsonify({
         'job_id': job.job_id,
         'status': job.status,
         'progress': job.progress,
         'message': job.message,
-        'error': job.error,
+        'error': error_message,
         'created_at': job.created_at.isoformat(),
         'completed_at': job.completed_at.isoformat() if job.completed_at else None,
         'has_file': bool(job.file_path and os.path.exists(job.file_path))
     })
 
 @app.route('/api/download-file/<job_id>')
+@rate_limit('requests')
 def download_file(job_id):
-    """Download the completed file"""
+    """Download the completed file with security checks"""
+    # Validate job_id format (should be UUID)
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        return jsonify({'error': 'Invalid job ID format'}), 400
+    
     with job_lock:
         job = jobs.get(job_id)
     
@@ -282,26 +330,57 @@ def download_file(job_id):
     if job.status != 'completed' or not job.file_path:
         return jsonify({'error': 'File not ready'}), 400
     
-    if not os.path.exists(job.file_path):
+    # Security: Validate file path is within expected directory
+    try:
+        file_path = Path(job.file_path).resolve()
+        downloads_dir = DOWNLOADS_DIR.resolve()
+        
+        # Ensure file is within downloads directory (prevent path traversal)
+        file_path.relative_to(downloads_dir)
+    except (ValueError, OSError):
+        logger.warning(f"Attempted access to file outside downloads directory: {job.file_path}")
+        return jsonify({'error': 'File access denied'}), 403
+    
+    if not file_path.exists():
         return jsonify({'error': 'File not found'}), 404
     
-    filename = os.path.basename(job.file_path)
-    return send_file(job.file_path, as_attachment=True, download_name=filename)
-
-@app.route('/api/jobs')
-def list_jobs():
-    """List all jobs (for debugging)"""
-    with job_lock:
-        job_list = []
-        for job in jobs.values():
-            job_list.append({
-                'job_id': job.job_id,
-                'status': job.status,
-                'message': job.message,
-                'created_at': job.created_at.isoformat()
-            })
+    # Sanitize filename for download
+    original_filename = file_path.name
+    safe_filename = InputValidator.validate_filename(original_filename)
+    if not safe_filename:
+        safe_filename = f"download_{job_id[:8]}.{file_path.suffix.lstrip('.')}"
     
-    return jsonify(job_list)
+    try:
+        return send_file(str(file_path), as_attachment=True, download_name=safe_filename)
+    except Exception as e:
+        logger.exception(f"Error sending file {file_path}: {e}")
+        return jsonify({'error': 'File download failed'}), 500
+
+@app.route('/api/rate-limit-status')
+@rate_limit('requests')
+def get_rate_limit_status():
+    """Get current rate limit status for the client"""
+    try:
+        ip = rate_limiter.get_client_ip()
+        status = rate_limiter.get_rate_limit_status(ip)
+        return jsonify(status)
+    except Exception as e:
+        logger.exception("Error getting rate limit status")
+        return jsonify({'error': 'Unable to get rate limit status'}), 500
+
+@app.route('/api/performance-stats')
+@rate_limit('requests')
+def get_performance_stats():
+    """Get performance statistics (admin endpoint)"""
+    try:
+        stats = get_performance_report()
+        return jsonify(stats)
+    except Exception as e:
+        logger.exception("Error getting performance stats")
+        return jsonify({'error': 'Unable to get performance stats'}), 500
+
+# SECURITY: Removed public job listing endpoint to prevent data leakage
+# Job history is now handled client-side using localStorage
 
 # Cleanup old files on startup and periodically
 cleanup_old_files()

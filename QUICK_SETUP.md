@@ -369,7 +369,7 @@ iftop
 ### **Application Metrics**
 ```bash
 # Check active downloads
-curl https://dl.xtend3d.com/api/jobs
+# curl https://dl.xtend3d.com/api/jobs  # REMOVED: Security fix
 
 # Monitor download directory size
 du -sh /var/www/downloads

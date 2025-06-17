@@ -3,131 +3,288 @@
 {% block content %}
 <div class="row">
     <div class="col-lg-8">
-        <!-- Dependency Status -->
-        <div class="dependency-status">
-            <h5><i class="bi bi-gear"></i> System Status</h5>
-            <div class="dependency-item">
-                <i class="bi bi-circle-fill text-{% if dependencies['yt-dlp'] %}success{% else %}danger{% endif %}"></i>
-                <span>yt-dlp: {% if dependencies['yt-dlp'] %}Installed{% else %}Not installed{% endif %}</span>
-            </div>
-            <div class="dependency-item">
-                <i class="bi bi-circle-fill text-{% if dependencies['ffmpeg'] %}success{% else %}danger{% endif %}"></i>
-                <span>ffmpeg: {% if dependencies['ffmpeg'] %}Installed{% else %}Not installed{% endif %}</span>
-            </div>
-            {% if not dependencies['yt-dlp'] or not dependencies['ffmpeg'] %}
-            <div class="alert alert-warning mt-2">
-                <i class="bi bi-exclamation-triangle"></i>
-                Some dependencies are missing. Please install them for full functionality.
-            </div>
-            {% endif %}
-        </div>
-
-        <!-- Input Mode Selection -->
-        <div class="form-section">
-            <h5><i class="bi bi-input-cursor"></i> Input Mode</h5>
-            <div class="form-check form-check-inline">
-                <input class="form-check-input" type="radio" name="inputMode" id="modeSimple" value="simple" checked>
-                <label class="form-check-label" for="modeSimple">
-                    <i class="bi bi-link-45deg"></i> Simple URL
-                </label>
-            </div>
-            <div class="form-check form-check-inline">
-                <input class="form-check-input" type="radio" name="inputMode" id="modeJson" value="json">
-                <label class="form-check-label" for="modeJson">
-                    <i class="bi bi-code-square"></i> Advanced JSON
-                </label>
-            </div>
-        </div>
-
-        <!-- Simple Mode -->
-        <div id="simpleMode" class="mode-section active">
-            <div class="form-section">
-                <h5><i class="bi bi-link-45deg"></i> Video URL</h5>
-                <div class="mb-3">
-                    <input type="url" class="form-control" id="videoUrl" placeholder="https://youtube.com/watch?v=..." required>
-                    <div class="form-text">Enter the URL of the video you want to download</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- JSON Mode -->
-        <div id="jsonMode" class="mode-section">
+        <!-- JSON Configuration -->
+        <div id="jsonMode" class="mode-section active">
             <div class="form-section">
                 <h5><i class="bi bi-code-square"></i> JSON Configuration</h5>
                 <div class="mb-3">
-                    <textarea class="form-control json-textarea" id="jsonInput" rows="10" placeholder='{
+                    <textarea class="form-control json-textarea" id="jsonInput" rows="5" placeholder='{
   "url": "https://example.com/video.m3u8",
   "sourceType": "hls",
-  "headers": {
-    "Authorization": "Bearer your-token",
-    "Referer": "https://example.com"
-  },
+  "headers": {"Authorization": "Bearer token"},
   "cookies": "session_id=abc123; auth_token=xyz789",
   "userAgent": "Mozilla/5.0...",
   "referer": "https://example.com/page"
 }'></textarea>
-                    <div class="form-text">Paste your JSON configuration from the Chrome extension or manual input</div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="form-text d-none d-md-block">Paste JSON from the Chrome extension</div>
+                        <div class="form-text d-block d-md-none">Paste media JSON</div>
+                        <div id="jsonValidation"></div>
+                    </div>
                 </div>
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="validateJsonBtn">
-                    <i class="bi bi-check-circle"></i> Validate JSON
-                </button>
-                <div id="jsonValidation" class="mt-2"></div>
             </div>
         </div>
 
         <!-- Download Options -->
         <div class="form-section">
             <h5><i class="bi bi-sliders"></i> Download Options</h5>
+            
+            <!-- Simple Options -->
             <div class="row">
                 <div class="col-md-4">
                     <label for="quality" class="form-label">Quality</label>
                     <select class="form-select" id="quality">
-                        <option value="best">Best Available</option>
-                        <option value="medium">Medium (720p)</option>
-                        <option value="low">Low (480p)</option>
+                        <option value="1080p">1080p (Full HD)</option>
+                        <option value="720p" selected>720p (HD)</option>
+                        <option value="480p">480p (SD)</option>
                     </select>
                 </div>
                 <div class="col-md-4">
                     <label for="format" class="form-label">Format</label>
                     <select class="form-select" id="format">
-                        <option value="mp4">MP4</option>
-                        <option value="webm">WebM</option>
-                        <option value="mkv">MKV</option>
-                        <option value="avi">AVI</option>
+                        <option value="mp4">MP4 (Universal)</option>
+                        <option value="webm">WebM (Web Optimized)</option>
+                        <option value="mkv">MKV (High Quality)</option>
+                        <option value="mov">MOV (Apple)</option>
                     </select>
                 </div>
                 <div class="col-md-4">
-                    <label for="filename" class="form-label">Custom Filename (Optional)</label>
-                    <input type="text" class="form-control" id="filename" placeholder="my_video">
+                    <label for="filename" class="form-label">Custom Filename</label>
+                    <input type="text" class="form-control" id="filename" placeholder="Optional (without extension)">
                 </div>
             </div>
-            <div class="row mt-3">
-                <div class="col-md-6">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="verbose">
-                        <label class="form-check-label" for="verbose">
-                            Verbose Output
-                        </label>
+
+            <!-- Advanced Options Toggle -->
+            <div class="mt-3">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="collapse" data-bs-target="#advancedOptions" aria-expanded="false" aria-controls="advancedOptions">
+                    <i class="bi bi-gear"></i> Advanced Options
+                    <i class="bi bi-chevron-down ms-1"></i>
+                </button>
+            </div>
+
+            <!-- Advanced Options (Collapsible) -->
+            <div class="collapse mt-3" id="advancedOptions">
+                <div class="card card-body">
+                    <h6 class="card-title"><i class="bi bi-gear-fill"></i> Advanced Settings</h6>
+                    
+                    <!-- Audio & Video Details -->
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label for="videoQualityAdvanced" class="form-label">Specific Quality</label>
+                            <select class="form-select" id="videoQualityAdvanced">
+                                <option value="">Use Simple Quality</option>
+                                <option value="2160p">4K (2160p)</option>
+                                <option value="1440p">2K (1440p)</option>
+                                <option value="1080p60">1080p 60fps</option>
+                                <option value="720p60">720p 60fps</option>
+                                <option value="360p">360p (Low)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="audioQuality" class="form-label">Audio Quality</label>
+                            <select class="form-select" id="audioQuality">
+                                <option value="best">Best Available</option>
+                                <option value="320k">320 kbps (High)</option>
+                                <option value="192k">192 kbps (Medium)</option>
+                                <option value="128k">128 kbps (Low)</option>
+                                <option value="96k">96 kbps (Very Low)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="audioFormat" class="form-label">Audio Format</label>
+                            <select class="form-select" id="audioFormat">
+                                <option value="best">Best Available</option>
+                                <option value="aac">AAC (Universal)</option>
+                                <option value="mp3">MP3 (Compatible)</option>
+                                <option value="opus">Opus (Efficient)</option>
+                                <option value="flac">FLAC (Lossless)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="containerAdvanced" class="form-label">Advanced Formats</label>
+                            <select class="form-select" id="containerAdvanced">
+                                <option value="">Use Simple Format</option>
+                                <option value="avi">AVI (Legacy)</option>
+                                <option value="flv">FLV (Flash)</option>
+                                <option value="3gp">3GP (Mobile)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Download Control -->
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <label for="rateLimit" class="form-label">Rate Limit</label>
+                            <select class="form-select" id="rateLimit">
+                                <option value="">No Limit</option>
+                                <option value="10M">10 MB/s</option>
+                                <option value="5M">5 MB/s</option>
+                                <option value="2M">2 MB/s</option>
+                                <option value="1M">1 MB/s</option>
+                                <option value="500K">500 KB/s</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="retries" class="form-label">Retry Count</label>
+                            <select class="form-select" id="retries">
+                                <option value="10">10 (Default)</option>
+                                <option value="5">5</option>
+                                <option value="3">3</option>
+                                <option value="1">1</option>
+                                <option value="infinite">Infinite</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="concurrentFragments" class="form-label">Concurrent Downloads</label>
+                            <select class="form-select" id="concurrentFragments">
+                                <option value="1">1 (Default)</option>
+                                <option value="2">2</option>
+                                <option value="4">4</option>
+                                <option value="8">8</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" id="keepFragments">
+                                <label class="form-check-label" for="keepFragments">
+                                    Keep Fragments
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feature Toggles -->
+                    <div class="row mt-3">
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="extractAudio">
+                                <label class="form-check-label" for="extractAudio">
+                                    <i class="bi bi-music-note"></i> Extract Audio Only
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="embedSubs">
+                                <label class="form-check-label" for="embedSubs">
+                                    <i class="bi bi-chat-square-text"></i> Embed Subtitles
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="embedThumbnail">
+                                <label class="form-check-label" for="embedThumbnail">
+                                    <i class="bi bi-image"></i> Embed Thumbnail
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mt-2">
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="embedMetadata">
+                                <label class="form-check-label" for="embedMetadata">
+                                    <i class="bi bi-tags"></i> Embed Metadata
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="writeSubs">
+                                <label class="form-check-label" for="writeSubs">
+                                    <i class="bi bi-file-text"></i> Download Subtitles
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="verbose">
+                                <label class="form-check-label" for="verbose">
+                                    <i class="bi bi-terminal"></i> Verbose Logging
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Subtitle Options -->
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <label for="subtitleLangs" class="form-label">Subtitle Languages</label>
+                            <input type="text" class="form-control" id="subtitleLangs" placeholder="en,es,fr or 'all'">
+                            <div class="form-text">Comma-separated language codes (e.g., en,es,fr) or 'all'</div>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="subtitleFormat" class="form-label">Subtitle Format</label>
+                            <select class="form-select" id="subtitleFormat">
+                                <option value="best">Best Available</option>
+                                <option value="srt">SRT</option>
+                                <option value="vtt">VTT</option>
+                                <option value="ass">ASS</option>
+                                <option value="lrc">LRC</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" id="autoSubs">
+                                <label class="form-check-label" for="autoSubs">
+                                    Auto-generated Subs
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Download Button -->
-        <div class="text-center mb-4">
-            <button type="button" class="btn btn-primary btn-lg" id="downloadBtn">
+        <div class="mb-4">
+            <button type="button" class="btn btn-primary btn-lg w-100" id="downloadBtn" disabled>
                 <i class="bi bi-download"></i> Start Download
             </button>
+            <small class="text-muted d-block text-center mt-2" id="downloadBtnHelp">
+                Please enter valid JSON configuration to enable download
+            </small>
         </div>
 
         <!-- Progress Section -->
         <div id="progressContainer" class="progress-container">
             <div class="form-section">
-                <h5><i class="bi bi-hourglass-split"></i> Download Progress</h5>
-                <div class="progress mb-3">
-                    <div class="progress-bar" role="progressbar" style="width: 0%" id="progressBar"></div>
+                <h5><i class="bi bi-hourglass-split"></i> Download Status</h5>
+                
+                <!-- Loading Indicator -->
+                <div class="d-flex align-items-center mb-3">
+                    <div class="spinner-border text-primary me-3" role="status" id="loadingSpinner">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="status-message fw-medium" id="statusMessage">Initializing download...</div>
+                        <small class="text-muted" id="statusDetails">Please wait while we process your request</small>
+                    </div>
                 </div>
-                <div class="status-message" id="statusMessage">Initializing...</div>
+                
+                
+                <!-- Status Steps -->
+                <div class="download-steps">
+                    <div class="step-item" id="step-init">
+                        <i class="bi bi-circle-fill text-primary"></i>
+                        <span>Initializing download...</span>
+                    </div>
+                    <div class="step-item" id="step-extract">
+                        <i class="bi bi-circle text-muted"></i>
+                        <span>Extracting video information...</span>
+                    </div>
+                    <div class="step-item" id="step-download">
+                        <i class="bi bi-circle text-muted"></i>
+                        <span>Downloading media...</span>
+                    </div>
+                    <div class="step-item" id="step-process">
+                        <i class="bi bi-circle text-muted"></i>
+                        <span>Converting to H.264 and finalizing...</span>
+                    </div>
+                </div>
+                
                 <div class="mt-3">
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="cancelBtn">
                         <i class="bi bi-x-circle"></i> Cancel
@@ -163,61 +320,50 @@
     <div class="col-lg-4">
         <!-- Job History -->
         <div class="form-section">
-            <h5><i class="bi bi-clock-history"></i> Recent Downloads</h5>
+            <h5><i class="bi bi-clock-history"></i> Download History</h5>
+            <small class="text-muted d-block mb-2">
+                <i class="bi bi-shield-check"></i> Stored locally in your browser only
+            </small>
             <div id="jobHistory" class="job-history">
                 <div class="text-muted text-center">No recent downloads</div>
             </div>
-            <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="refreshHistoryBtn">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
+            <div class="d-flex gap-2 mt-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="refreshHistoryBtn">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+                <button type="button" class="btn btn-outline-danger btn-sm" id="clearHistoryBtn">
+                    <i class="bi bi-trash"></i> Clear
+                </button>
+            </div>
         </div>
 
-        <!-- Help Section -->
+        <!-- System Status -->
         <div class="form-section">
-            <h5><i class="bi bi-question-circle"></i> Help</h5>
-            <div class="accordion" id="helpAccordion">
-                <div class="accordion-item">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#helpSimple">
-                            Simple URL Mode
-                        </button>
-                    </h2>
-                    <div id="helpSimple" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                        <div class="accordion-body">
-                            <small>
-                                Just paste any video URL from supported platforms like YouTube, Vimeo, TikTok, etc.
-                                The downloader will automatically detect the best method to download the video.
-                            </small>
+            <h5><i class="bi bi-gear"></i> System Status</h5>
+            <div class="row g-2">
+                <div class="col-12">
+                    <div class="status-card {% if dependencies['yt-dlp'] %}status-success{% else %}status-danger{% endif %}">
+                        <div class="d-flex align-items-center">
+                            <div class="flex-grow-1">
+                                <div class="fw-medium">yt-dlp</div>
+                                <small class="text-muted">Video downloader engine</small>
+                            </div>
+                            <span class="badge {% if dependencies['yt-dlp'] %}bg-success{% else %}bg-danger{% endif %}">
+                                {% if dependencies['yt-dlp'] %}Ready{% else %}Missing{% endif %}
+                            </span>
                         </div>
                     </div>
                 </div>
-                <div class="accordion-item">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#helpJson">
-                            Advanced JSON Mode
-                        </button>
-                    </h2>
-                    <div id="helpJson" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                        <div class="accordion-body">
-                            <small>
-                                Use this mode for protected videos that require authentication, cookies, or special headers.
-                                You can paste JSON directly from your Chrome extension or create it manually.
-                            </small>
-                        </div>
-                    </div>
-                </div>
-                <div class="accordion-item">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#helpSupported">
-                            Supported Sites
-                        </button>
-                    </h2>
-                    <div id="helpSupported" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
-                        <div class="accordion-body">
-                            <small>
-                                YouTube, Vimeo, TikTok, Twitter, Instagram, Twitch, Reddit, SoundCloud, 
-                                and many more. Also supports direct video streams (HLS, DASH, MP4).
-                            </small>
+                <div class="col-12">
+                    <div class="status-card {% if dependencies['ffmpeg'] %}status-success{% else %}status-warning{% endif %}">
+                        <div class="d-flex align-items-center">
+                            <div class="flex-grow-1">
+                                <div class="fw-medium">FFmpeg</div>
+                                <small class="text-muted">Media processing</small>
+                            </div>
+                            <span class="badge {% if dependencies['ffmpeg'] %}bg-success{% else %}bg-warning{% endif %}">
+                                {% if dependencies['ffmpeg'] %}Ready{% else %}Optional{% endif %}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -435,51 +581,7 @@ document.getElementById('cancelBtn').addEventListener('click', function() {
     currentJobId = null;
 });
 
-// Job history
-function refreshJobHistory() {
-    fetch('/api/jobs')
-    .then(response => response.json())
-    .then(jobs => {
-        const historyDiv = document.getElementById('jobHistory');
-        
-        if (jobs.length === 0) {
-            historyDiv.innerHTML = '<div class="text-muted text-center">No recent downloads</div>';
-            return;
-        }
-        
-        historyDiv.innerHTML = '';
-        jobs.slice(-5).reverse().forEach(job => {
-            const jobDiv = document.createElement('div');
-            jobDiv.className = `job-item ${job.status}`;
-            
-            const statusIcon = job.status === 'completed' ? 'check-circle' : 
-                              job.status === 'failed' ? 'x-circle' : 'hourglass-split';
-            
-            jobDiv.innerHTML = `
-                <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                        <small class="text-muted">${new Date(job.created_at).toLocaleString()}</small>
-                        <div><i class="bi bi-${statusIcon}"></i> ${job.status}</div>
-                        <small>${job.message}</small>
-                    </div>
-                    <span class="badge bg-secondary">${job.job_id.substring(0, 8)}</span>
-                </div>
-            `;
-            
-            historyDiv.appendChild(jobDiv);
-        });
-    })
-    .catch(error => {
-        console.error('Error fetching job history:', error);
-    });
-}
-
-// Refresh history button
-document.getElementById('refreshHistoryBtn').addEventListener('click', refreshJobHistory);
-
-// Load job history on page load
-document.addEventListener('DOMContentLoaded', function() {
-    refreshJobHistory();
-});
+// Job history is now handled by the external VideoDownloader class in app.js
+// This provides better security and privacy by using localStorage
 </script>
 {% endblock %}

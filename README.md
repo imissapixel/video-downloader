@@ -147,7 +147,7 @@ window.open(`http://localhost:5000/api/download-file/${jobId}`)
 | `/api/download` | POST | Start new download job |
 | `/api/status/<job_id>` | GET | Get download status |
 | `/api/download-file/<job_id>` | GET | Download completed file |
-| `/api/jobs` | GET | List recent download jobs |
+| ~~`/api/jobs`~~ | ~~GET~~ | ~~Removed for security~~ |
 
 ## Supported Platforms
 
@@ -213,7 +213,7 @@ FLASK_ENV=development python app.py
 
 ### Project Structure
 ```
-video_downloader_web/
+video-downloader/
 ├── app.py                 # Main Flask application
 ├── video_downloader.py    # Core download functionality
 ├── requirements.txt       # Python dependencies
