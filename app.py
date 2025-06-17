@@ -162,6 +162,32 @@ class DownloadJob:
         self.created_at = datetime.now()
         self.completed_at = None
 
+class MultiDownloadJob:
+    def __init__(self, job_id, videos_info, options):
+        self.job_id = job_id
+        self.videos_info = videos_info  # List of video stream info
+        self.options = options
+        self.status = 'pending'
+        self.progress = 0
+        self.message = 'Initializing parallel downloads...'
+        self.error = None
+        self.completed_videos = 0
+        self.total_videos = len(videos_info)
+        self.video_jobs = {}  # video_index -> individual job status
+        self.file_paths = []  # List of downloaded file paths
+        self.created_at = datetime.now()
+        self.completed_at = None
+        
+        # Initialize individual video job tracking
+        for i in range(self.total_videos):
+            self.video_jobs[i] = {
+                'status': 'pending',
+                'progress': 0,
+                'message': 'Waiting to start...',
+                'error': None,
+                'file_path': None
+            }
+
 def cleanup_old_files():
     """Clean up files older than configured retention time"""
     try:
@@ -257,6 +283,153 @@ def download_worker(job_id):
                 if download_url in active_downloads and active_downloads[download_url] == job_id:
                     del active_downloads[download_url]
 
+def multi_download_worker(job_id):
+    """Background worker for downloading multiple videos in parallel"""
+    with job_lock:
+        job = jobs.get(job_id)
+        if not job or not isinstance(job, MultiDownloadJob):
+            return
+
+    def update_overall_progress():
+        """Update overall job progress based on individual video progress"""
+        with job_lock:
+            if job_id not in jobs:
+                return
+            
+            total_progress = sum(video_job['progress'] for video_job in job.video_jobs.values())
+            job.progress = total_progress // job.total_videos
+            
+            completed = sum(1 for video_job in job.video_jobs.values() if video_job['status'] == 'completed')
+            failed = sum(1 for video_job in job.video_jobs.values() if video_job['status'] == 'failed')
+            
+            if completed == job.total_videos:
+                job.status = 'completed'
+                job.message = f'All {job.total_videos} videos downloaded successfully'
+                job.completed_at = datetime.now()
+            elif failed > 0 and (completed + failed) == job.total_videos:
+                job.status = 'completed_with_errors'
+                job.message = f'{completed} videos completed, {failed} failed'
+                job.completed_at = datetime.now()
+            else:
+                job.status = 'downloading'
+                job.message = f'Downloading {job.total_videos} videos... ({completed} completed, {failed} failed)'
+
+    def download_single_video(video_index, video_info):
+        """Download a single video within the multi-download job"""
+        try:
+            # Update video job status
+            with job_lock:
+                if job_id in jobs:
+                    job.video_jobs[video_index]['status'] = 'downloading'
+                    job.video_jobs[video_index]['message'] = 'Starting download...'
+            
+            # Create unique output directory for this video
+            output_dir = DOWNLOADS_DIR / job_id / f"video_{video_index + 1}"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            def video_progress_callback(message):
+                """Update progress for individual video"""
+                with job_lock:
+                    if job_id in jobs:
+                        job.video_jobs[video_index]['message'] = message
+                        # Estimate progress based on message content
+                        if 'completed' in message.lower():
+                            job.video_jobs[video_index]['progress'] = 100
+                        elif 'download' in message.lower():
+                            job.video_jobs[video_index]['progress'] = 50
+                        elif 'extract' in message.lower():
+                            job.video_jobs[video_index]['progress'] = 25
+                        update_overall_progress()
+            
+            # Download the video
+            result = download_video(
+                video_info,
+                str(output_dir),
+                job.options.get('format', 'mp4'),
+                job.options.get('quality', 'best'),
+                job.options.get('filename'),
+                job.options.get('verbose', False),
+                progress_callback=video_progress_callback,
+                # Pass all advanced options
+                videoQualityAdvanced=job.options.get('videoQualityAdvanced', ''),
+                audioQuality=job.options.get('audioQuality', 'best'),
+                audioFormat=job.options.get('audioFormat', 'best'),
+                containerAdvanced=job.options.get('containerAdvanced', ''),
+                rateLimit=job.options.get('rateLimit', ''),
+                retries=job.options.get('retries', '10'),
+                concurrentFragments=job.options.get('concurrentFragments', '1'),
+                extractAudio=job.options.get('extractAudio', False),
+                embedSubs=job.options.get('embedSubs', False),
+                embedThumbnail=job.options.get('embedThumbnail', False),
+                embedMetadata=job.options.get('embedMetadata', False),
+                keepFragments=job.options.get('keepFragments', False),
+                writeSubs=job.options.get('writeSubs', False),
+                autoSubs=job.options.get('autoSubs', False),
+                subtitleLangs=job.options.get('subtitleLangs', ''),
+                subtitleFormat=job.options.get('subtitleFormat', 'best')
+            )
+            
+            with job_lock:
+                if job_id in jobs:
+                    if result['success']:
+                        job.video_jobs[video_index]['status'] = 'completed'
+                        job.video_jobs[video_index]['progress'] = 100
+                        job.video_jobs[video_index]['message'] = 'Download completed'
+                        
+                        # Find the downloaded file
+                        files = list(output_dir.glob('*'))
+                        if files:
+                            job.video_jobs[video_index]['file_path'] = str(files[0])
+                            job.file_paths.append(str(files[0]))
+                    else:
+                        job.video_jobs[video_index]['status'] = 'failed'
+                        job.video_jobs[video_index]['error'] = result.get('error', 'Unknown error')
+                        job.video_jobs[video_index]['message'] = f'Failed: {job.video_jobs[video_index]["error"]}'
+                    
+                    update_overall_progress()
+                    
+        except Exception as e:
+            with job_lock:
+                if job_id in jobs:
+                    job.video_jobs[video_index]['status'] = 'failed'
+                    job.video_jobs[video_index]['error'] = str(e)
+                    job.video_jobs[video_index]['message'] = f'Failed: {str(e)}'
+                    update_overall_progress()
+            logger.exception(f"Video {video_index + 1} in job {job_id} failed")
+
+    try:
+        job.status = 'downloading'
+        
+        # Start parallel downloads using threading
+        threads = []
+        for i, video_info in enumerate(job.videos_info):
+            thread = threading.Thread(target=download_single_video, args=(i, video_info))
+            thread.daemon = True
+            threads.append(thread)
+            thread.start()
+        
+        # Wait for all downloads to complete
+        for thread in threads:
+            thread.join()
+            
+    except Exception as e:
+        with job_lock:
+            if job_id in jobs:
+                job.status = 'failed'
+                job.error = str(e)
+                job.message = f'Multi-download failed: {str(e)}'
+                job.completed_at = datetime.now()
+        logger.exception(f"Multi-download job {job_id} failed")
+    
+    finally:
+        # Clean up active downloads tracking for all videos
+        for video_info in job.videos_info:
+            download_url = video_info.get('url', '')
+            if download_url:
+                with active_downloads_lock:
+                    if download_url in active_downloads and active_downloads[download_url] == job_id:
+                        del active_downloads[download_url]
+
 @app.route('/')
 def index():
     """Main page with download interface"""
@@ -332,28 +505,6 @@ def start_download():
             logger.warning(f"Security validation failed for download request: {e}")
             return jsonify({'success': False, 'error': f'Security validation failed: {str(e)}'})
         
-        # Extract validated data
-        stream_info = validated_data['stream_info']
-        download_url = stream_info.get('url', '')
-        
-        # Check for duplicate downloads (only for very recent requests within 30 seconds)
-        with active_downloads_lock:
-            if download_url in active_downloads:
-                existing_job_id = active_downloads[download_url]
-                # Check if the existing job is still active and recent
-                with job_lock:
-                    if existing_job_id in jobs:
-                        existing_job = jobs[existing_job_id]
-                        # Only prevent duplicates if job is active AND created within last 30 seconds
-                        time_since_created = (datetime.now() - existing_job.created_at).total_seconds()
-                        if existing_job.status in ['pending', 'downloading'] and time_since_created < 30:
-                            logger.info(f"Recent duplicate download request for {download_url}, returning existing job {existing_job_id}")
-                            return jsonify({'success': True, 'job_id': existing_job_id, 'duplicate': True})
-                        else:
-                            # Job completed/failed or too old, remove from active downloads
-                            logger.info(f"Removing stale download tracking for {download_url} (status: {existing_job.status}, age: {time_since_created}s)")
-                            del active_downloads[download_url]
-        
         # Generate unique job ID
         job_id = str(uuid.uuid4())
         
@@ -381,23 +532,89 @@ def start_download():
             'subtitleFormat': validated_data.get('subtitleFormat', 'best')
         }
         
-        # Create job with validated data
-        job = DownloadJob(job_id, stream_info, options)
-        
-        # Add to both job storage and active downloads
-        with job_lock:
-            jobs[job_id] = job
-        
-        with active_downloads_lock:
-            active_downloads[download_url] = job_id
-        
-        # Start download in background
-        thread = threading.Thread(target=download_worker, args=(job_id,))
-        thread.daemon = True
-        thread.start()
-        
-        logger.info(f"Started secure download job {job_id} for URL: {download_url}")
-        return jsonify({'success': True, 'job_id': job_id})
+        if validated_data.get('is_multi', False):
+            # Multi-video download
+            videos_info = validated_data['videos']
+            
+            # Check for duplicate downloads for each video
+            duplicate_urls = []
+            with active_downloads_lock:
+                for video_info in videos_info:
+                    download_url = video_info.get('url', '')
+                    if download_url in active_downloads:
+                        existing_job_id = active_downloads[download_url]
+                        with job_lock:
+                            if existing_job_id in jobs:
+                                existing_job = jobs[existing_job_id]
+                                time_since_created = (datetime.now() - existing_job.created_at).total_seconds()
+                                if existing_job.status in ['pending', 'downloading'] and time_since_created < 30:
+                                    duplicate_urls.append(download_url)
+            
+            if duplicate_urls:
+                logger.info(f"Recent duplicate download requests found for {len(duplicate_urls)} videos")
+                return jsonify({'success': False, 'error': f'Some videos are already being downloaded'})
+            
+            # Create multi-download job
+            job = MultiDownloadJob(job_id, videos_info, options)
+            
+            # Add to job storage and track all video URLs
+            with job_lock:
+                jobs[job_id] = job
+            
+            with active_downloads_lock:
+                for video_info in videos_info:
+                    download_url = video_info.get('url', '')
+                    if download_url:
+                        active_downloads[download_url] = job_id
+            
+            # Start multi-download in background
+            thread = threading.Thread(target=multi_download_worker, args=(job_id,))
+            thread.daemon = True
+            thread.start()
+            
+            logger.info(f"Started multi-download job {job_id} for {len(videos_info)} videos")
+            return jsonify({'success': True, 'job_id': job_id, 'is_multi': True, 'video_count': len(videos_info)})
+            
+        else:
+            # Single video download (existing logic)
+            stream_info = validated_data['stream_info']
+            download_url = stream_info.get('url', '')
+            
+            # Check for duplicate downloads (only for very recent requests within 30 seconds)
+            with active_downloads_lock:
+                if download_url in active_downloads:
+                    existing_job_id = active_downloads[download_url]
+                    # Check if the existing job is still active and recent
+                    with job_lock:
+                        if existing_job_id in jobs:
+                            existing_job = jobs[existing_job_id]
+                            # Only prevent duplicates if job is active AND created within last 30 seconds
+                            time_since_created = (datetime.now() - existing_job.created_at).total_seconds()
+                            if existing_job.status in ['pending', 'downloading'] and time_since_created < 30:
+                                logger.info(f"Recent duplicate download request for {download_url}, returning existing job {existing_job_id}")
+                                return jsonify({'success': True, 'job_id': existing_job_id, 'duplicate': True})
+                            else:
+                                # Job completed/failed or too old, remove from active downloads
+                                logger.info(f"Removing stale download tracking for {download_url} (status: {existing_job.status}, age: {time_since_created}s)")
+                                del active_downloads[download_url]
+            
+            # Create single download job
+            job = DownloadJob(job_id, stream_info, options)
+            
+            # Add to both job storage and active downloads
+            with job_lock:
+                jobs[job_id] = job
+            
+            with active_downloads_lock:
+                active_downloads[download_url] = job_id
+            
+            # Start download in background
+            thread = threading.Thread(target=download_worker, args=(job_id,))
+            thread.daemon = True
+            thread.start()
+            
+            logger.info(f"Started secure download job {job_id} for URL: {download_url}")
+            return jsonify({'success': True, 'job_id': job_id})
         
     except SecurityError as e:
         logger.warning(f"Security error in download request: {e}")
@@ -428,16 +645,35 @@ def get_status(job_id):
         error_message = re.sub(r'/[^\s]*', '[PATH]', error_message)  # Remove file paths
         error_message = re.sub(r'https?://[^\s]+', '[URL]', error_message)  # Remove URLs
     
-    return jsonify({
+    # Base response for all job types
+    response = {
         'job_id': job.job_id,
         'status': job.status,
         'progress': job.progress,
         'message': job.message,
         'error': error_message,
         'created_at': job.created_at.isoformat(),
-        'completed_at': job.completed_at.isoformat() if job.completed_at else None,
-        'has_file': bool(job.file_path and os.path.exists(job.file_path))
-    })
+        'completed_at': job.completed_at.isoformat() if job.completed_at else None
+    }
+    
+    # Handle multi-video jobs
+    if isinstance(job, MultiDownloadJob):
+        response.update({
+            'is_multi': True,
+            'total_videos': job.total_videos,
+            'completed_videos': job.completed_videos,
+            'video_jobs': job.video_jobs,
+            'has_files': len(job.file_paths) > 0,
+            'file_count': len(job.file_paths)
+        })
+    else:
+        # Single video job
+        response.update({
+            'is_multi': False,
+            'has_file': bool(job.file_path and os.path.exists(job.file_path))
+        })
+    
+    return jsonify(response)
 
 @app.route('/api/download-file/<job_id>')
 @rate_limit('requests')
@@ -455,6 +691,15 @@ def download_file(job_id):
     if not job:
         return jsonify({'error': 'Job not found'}), 404
     
+    # Handle multi-video jobs
+    if isinstance(job, MultiDownloadJob):
+        if job.status not in ['completed', 'completed_with_errors'] or not job.file_paths:
+            return jsonify({'error': 'Files not ready'}), 400
+        
+        # For multi-video jobs, create a ZIP file containing all downloaded videos
+        return create_multi_video_zip(job, job_id)
+    
+    # Handle single video jobs
     if job.status != 'completed' or not job.file_path:
         return jsonify({'error': 'File not ready'}), 400
     
@@ -483,6 +728,66 @@ def download_file(job_id):
     except Exception as e:
         logger.exception(f"Error sending file {file_path}: {e}")
         return jsonify({'error': 'File download failed'}), 500
+
+def create_multi_video_zip(job, job_id):
+    """Create a ZIP file containing all videos from a multi-video job"""
+    import zipfile
+    import tempfile
+    
+    try:
+        # Create a temporary ZIP file
+        temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+        temp_zip.close()
+        
+        with zipfile.ZipFile(temp_zip.name, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for i, file_path in enumerate(job.file_paths):
+                try:
+                    file_path_obj = Path(file_path).resolve()
+                    downloads_dir = DOWNLOADS_DIR.resolve()
+                    
+                    # Security check
+                    file_path_obj.relative_to(downloads_dir)
+                    
+                    if file_path_obj.exists():
+                        # Add file to ZIP with a clean name
+                        original_name = file_path_obj.name
+                        safe_name = InputValidator.validate_filename(original_name)
+                        if not safe_name:
+                            safe_name = f"video_{i+1}.{file_path_obj.suffix.lstrip('.')}"
+                        
+                        zip_file.write(str(file_path_obj), safe_name)
+                        logger.info(f"Added {safe_name} to ZIP for job {job_id}")
+                    else:
+                        logger.warning(f"File not found for ZIP: {file_path}")
+                        
+                except Exception as e:
+                    logger.error(f"Error adding file {file_path} to ZIP: {e}")
+                    continue
+        
+        # Send the ZIP file
+        zip_filename = f"batch_download_{job_id[:8]}.zip"
+        
+        def remove_temp_file():
+            """Remove temporary file after sending"""
+            try:
+                Path(temp_zip.name).unlink()
+            except Exception as e:
+                logger.error(f"Error removing temp ZIP file: {e}")
+        
+        # Schedule cleanup after response
+        import atexit
+        atexit.register(remove_temp_file)
+        
+        return send_file(
+            temp_zip.name, 
+            as_attachment=True, 
+            download_name=zip_filename,
+            mimetype='application/zip'
+        )
+        
+    except Exception as e:
+        logger.exception(f"Error creating ZIP file for job {job_id}: {e}")
+        return jsonify({'error': 'Failed to create download package'}), 500
 
 @app.route('/api/get-formats', methods=['POST'])
 @rate_limit('requests')

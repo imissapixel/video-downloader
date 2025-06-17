@@ -104,15 +104,59 @@ class VideoDownloader {
 
         try {
             const parsed = JSON.parse(jsonInput);
-            const hasUrl = parsed && parsed.url && typeof parsed.url === 'string' && parsed.url.trim();
             
-            if (hasUrl) {
-                validationDiv.innerHTML = '<small class="text-success"><i class="bi bi-check-circle"></i> Valid JSON</small>';
-                this.updateDownloadButtonState(true);
-                // Detect available qualities
-                this.detectAvailableQualities(parsed);
+            // Handle both single video (object) and multi-video (array) formats
+            if (Array.isArray(parsed)) {
+                // Multi-video format
+                if (parsed.length === 0) {
+                    validationDiv.innerHTML = '<small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Empty video array</small>';
+                    this.updateDownloadButtonState(false);
+                    return;
+                }
+                
+                if (parsed.length > 10) {
+                    validationDiv.innerHTML = '<small class="text-danger"><i class="bi bi-x-circle"></i> Too many videos (max 10)</small>';
+                    this.updateDownloadButtonState(false);
+                    return;
+                }
+                
+                // Check if all videos have URLs
+                const validVideos = parsed.filter(video => {
+                    if (typeof video !== 'object' || !video) return false;
+                    
+                    // Handle nested 'info' structure or flat structure
+                    const videoInfo = video.info || video;
+                    return videoInfo.url && typeof videoInfo.url === 'string' && videoInfo.url.trim();
+                });
+                
+                if (validVideos.length === parsed.length) {
+                    validationDiv.innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> Valid JSON - ${parsed.length} videos</small>`;
+                    this.updateDownloadButtonState(true);
+                    // Use first video for quality detection
+                    const firstVideo = validVideos[0].info || validVideos[0];
+                    this.detectAvailableQualities(firstVideo);
+                } else {
+                    validationDiv.innerHTML = `<small class="text-warning"><i class="bi bi-exclamation-triangle"></i> ${validVideos.length}/${parsed.length} videos have valid URLs</small>`;
+                    this.updateDownloadButtonState(false);
+                    this.resetQualityOptions();
+                }
+            } else if (typeof parsed === 'object' && parsed) {
+                // Single video format
+                const videoInfo = parsed.info || parsed;
+                const hasUrl = videoInfo.url && typeof videoInfo.url === 'string' && videoInfo.url.trim();
+                
+                if (hasUrl) {
+                    validationDiv.innerHTML = '<small class="text-success"><i class="bi bi-check-circle"></i> Valid JSON</small>';
+                    this.updateDownloadButtonState(true);
+                    // Detect available qualities
+                    this.detectAvailableQualities(videoInfo);
+                } else {
+                    validationDiv.innerHTML = '<small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Missing URL</small>';
+                    this.updateDownloadButtonState(false);
+                    this.resetQualityOptions();
+                }
             } else {
-                validationDiv.innerHTML = '<small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Missing URL</small>';
+                validationDiv.innerHTML = '<small class="text-danger"><i class="bi bi-x-circle"></i> JSON must be object or array</small>';
                 this.updateDownloadButtonState(false);
                 this.resetQualityOptions();
             }
@@ -299,6 +343,88 @@ class VideoDownloader {
                 window.open(`/api/download-file/${this.currentJobId}`, '_blank');
             };
         }
+        
+        // Update download section for multi-video jobs
+        this.updateDownloadSection();
+    }
+
+    async updateDownloadSection() {
+        if (!this.currentJobId) return;
+        
+        try {
+            const response = await fetch(`/api/status/${this.currentJobId}`);
+            const data = await response.json();
+            
+            const downloadSection = document.getElementById('downloadSection');
+            if (!downloadSection) return;
+            
+            if (data.is_multi) {
+                // Multi-video download completed
+                const completedCount = data.completed_videos || 0;
+                const totalCount = data.total_videos || 0;
+                const failedCount = totalCount - completedCount;
+                
+                let statusMessage = '';
+                if (data.status === 'completed') {
+                    statusMessage = `All ${totalCount} videos downloaded successfully!`;
+                } else if (data.status === 'completed_with_errors') {
+                    statusMessage = `${completedCount} videos completed, ${failedCount} failed`;
+                }
+                
+                downloadSection.innerHTML = `
+                    <div class="text-center">
+                        <div class="mb-4">
+                            <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
+                        </div>
+                        <h4 class="mb-3">Batch Download ${data.status === 'completed' ? 'Complete' : 'Finished'}</h4>
+                        <p class="text-muted mb-4">${statusMessage}</p>
+                        
+                        ${data.has_files ? `
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i>
+                                Multiple files were downloaded. Use the download history below to access individual files.
+                            </div>
+                        ` : ''}
+                        
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                            <button class="btn btn-primary" id="newDownloadBtn" onclick="videoDownloader.newDownload()">
+                                <i class="bi bi-plus-circle"></i> New Download
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Single video download - keep existing behavior
+                downloadSection.innerHTML = `
+                    <div class="text-center">
+                        <div class="mb-4">
+                            <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
+                        </div>
+                        <h4 class="mb-3">Download Complete</h4>
+                        <p class="text-muted mb-4">Your video has been successfully downloaded and is ready.</p>
+                        
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                            <button class="btn btn-success btn-lg" id="downloadFileBtn">
+                                <i class="bi bi-download"></i> Download File
+                            </button>
+                            <button class="btn btn-primary" id="newDownloadBtn" onclick="videoDownloader.newDownload()">
+                                <i class="bi bi-plus-circle"></i> New Download
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Set up download file button for single video
+                const downloadBtn = document.getElementById('downloadFileBtn');
+                if (downloadBtn) {
+                    downloadBtn.onclick = () => {
+                        window.open(`/api/download-file/${this.currentJobId}`, '_blank');
+                    };
+                }
+            }
+        } catch (error) {
+            console.error('Error updating download section:', error);
+        }
     }
 
     showError(message) {
@@ -378,6 +504,26 @@ class VideoDownloader {
             statusMessage.textContent = data.message || 'Processing...';
         }
         
+        // Handle multi-video progress display
+        if (data.is_multi) {
+            this.updateMultiVideoProgress(data);
+        } else {
+            this.updateSingleVideoProgress(data);
+        }
+        
+        // Handle spinner visibility
+        if (loadingSpinner) {
+            if (data.status === 'completed' || data.status === 'failed' || data.status === 'completed_with_errors') {
+                loadingSpinner.style.display = 'none';
+            } else {
+                loadingSpinner.style.display = 'block';
+            }
+        }
+    }
+
+    updateSingleVideoProgress(data) {
+        const statusDetails = document.getElementById('statusDetails');
+        
         // Update status details and steps based on message content
         if (statusDetails) {
             let details = 'Please wait while we process your request';
@@ -405,17 +551,87 @@ class VideoDownloader {
             statusDetails.textContent = details;
             this.updateStep(currentStep, data.status);
         }
+    }
+
+    updateMultiVideoProgress(data) {
+        const statusDetails = document.getElementById('statusDetails');
         
-        // Handle spinner visibility
-        if (loadingSpinner) {
-            if (data.status === 'completed' || data.status === 'failed') {
-                loadingSpinner.style.display = 'none';
-            } else {
-                loadingSpinner.style.display = 'block';
+        if (statusDetails) {
+            // Create or update multi-video progress display
+            let progressHTML = `
+                <div class="multi-video-progress">
+                    <div class="mb-3">
+                        <strong>Batch Download Progress:</strong> ${data.completed_videos || 0} of ${data.total_videos} videos completed
+                    </div>
+                    <div class="video-progress-list">
+            `;
+            
+            // Display individual video progress
+            if (data.video_jobs) {
+                Object.entries(data.video_jobs).forEach(([index, videoJob]) => {
+                    const videoNum = parseInt(index) + 1;
+                    const statusIcon = this.getVideoStatusIcon(videoJob.status);
+                    const progressPercent = videoJob.progress || 0;
+                    
+                    progressHTML += `
+                        <div class="video-progress-item mb-2 p-2 border rounded">
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-${statusIcon} me-2"></i>
+                                    <span class="fw-medium">Video ${videoNum}</span>
+                                </div>
+                                <span class="badge bg-${this.getVideoStatusColor(videoJob.status)}">${videoJob.status}</span>
+                            </div>
+                            <div class="mt-1">
+                                <small class="text-muted">${videoJob.message || 'Waiting...'}</small>
+                            </div>
+                            ${videoJob.status === 'downloading' ? `
+                                <div class="progress mt-2" style="height: 4px;">
+                                    <div class="progress-bar" role="progressbar" style="width: ${progressPercent}%"></div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
             }
+            
+            progressHTML += `
+                    </div>
+                </div>
+            `;
+            
+            statusDetails.innerHTML = progressHTML;
+            
+            // Update overall step based on progress
+            let currentStep = 'download';
+            if (data.status === 'completed' || data.status === 'completed_with_errors') {
+                currentStep = 'completed';
+            } else if (data.status === 'failed') {
+                currentStep = 'failed';
+            }
+            
+            this.updateStep(currentStep, data.status);
         }
-        
-        // Progress bar removed - using spinner only
+    }
+
+    getVideoStatusIcon(status) {
+        const icons = {
+            'pending': 'clock text-warning',
+            'downloading': 'hourglass-split text-primary',
+            'completed': 'check-circle-fill text-success',
+            'failed': 'x-circle-fill text-danger'
+        };
+        return icons[status] || 'circle text-secondary';
+    }
+
+    getVideoStatusColor(status) {
+        const colors = {
+            'pending': 'warning',
+            'downloading': 'primary',
+            'completed': 'success',
+            'failed': 'danger'
+        };
+        return colors[status] || 'secondary';
     }
 
     updateStep(stepName, status) {
@@ -972,7 +1188,7 @@ class VideoDownloader {
 
 // Initialize the application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new VideoDownloader();
+    window.videoDownloader = new VideoDownloader();
 });
 
 // Export for potential external use

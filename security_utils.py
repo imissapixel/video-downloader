@@ -239,7 +239,7 @@ class InputValidator:
 
     @staticmethod
     def validate_json_input(json_str: str) -> Dict[str, Any]:
-        """Validate and parse JSON input safely"""
+        """Validate and parse JSON input safely - supports both single video and multi-video arrays"""
         if not json_str:
             raise SecurityError("JSON string cannot be empty")
         
@@ -257,42 +257,80 @@ class InputValidator:
         except json.JSONDecodeError as e:
             raise SecurityError(f"Invalid JSON format: {e}")
         
-        if not isinstance(parsed, dict):
-            raise SecurityError("JSON must be an object/dictionary")
+        # Handle both single video (dict) and multi-video (array) formats
+        if isinstance(parsed, list):
+            # Multi-video format - validate array
+            if len(parsed) == 0:
+                raise SecurityError("Video array cannot be empty")
+            
+            if len(parsed) > 10:  # Limit to 10 videos for safety
+                raise SecurityError("Too many videos (max 10 videos per batch)")
+            
+            validated_videos = []
+            for i, video_item in enumerate(parsed):
+                if not isinstance(video_item, dict):
+                    raise SecurityError(f"Video item {i+1} must be an object/dictionary")
+                
+                # Extract video info - handle both flat and nested structures
+                video_info = InputValidator._extract_video_info(video_item, i+1)
+                validated_video = InputValidator._validate_single_video(video_info, i+1)
+                validated_videos.append(validated_video)
+            
+            return {"videos": validated_videos, "is_multi": True}
         
+        elif isinstance(parsed, dict):
+            # Single video format - existing logic
+            video_info = InputValidator._extract_video_info(parsed, 1)
+            validated_video = InputValidator._validate_single_video(video_info, 1)
+            return validated_video
+        
+        else:
+            raise SecurityError("JSON must be an object/dictionary or array of objects")
+
+    @staticmethod
+    def _extract_video_info(video_item: Dict[str, Any], index: int) -> Dict[str, Any]:
+        """Extract video info from various JSON formats"""
+        # Handle nested 'info' structure (from browser extension)
+        if 'info' in video_item and isinstance(video_item['info'], dict):
+            info = video_item['info'].copy()
+            # Merge top-level url with info if needed
+            if 'url' not in info and 'url' in video_item:
+                info['url'] = video_item['url']
+            return info
+        
+        # Handle flat structure
+        return video_item
+
+    @staticmethod
+    def _validate_single_video(video_info: Dict[str, Any], index: int) -> Dict[str, Any]:
+        """Validate a single video's information"""
         # Validate required fields
-        if 'url' not in parsed:
-            raise SecurityError("JSON must contain 'url' field")
+        if 'url' not in video_info:
+            raise SecurityError(f"Video {index} must contain 'url' field")
         
         # Check for command injection patterns in non-standard fields
-        # Standard fields (url, headers, cookies, etc.) are validated separately
-        standard_fields = {'url', 'headers', 'cookies', 'referer', 'userAgent', 'sourceType', 'title'}
-        # Safe fields that don't need command injection checking (display-only fields)
-        safe_display_fields = {'title', 'sourceType'}
+        standard_fields = {'url', 'headers', 'cookies', 'referer', 'userAgent', 'sourceType', 'title', 'videoId', 'pageUrl', 'pageTitle', 'timestamp', '_refreshed'}
         command_injection_patterns = [r'[;&|`$]', r'\.\./', r'\\\.\\']
         
-        for key, value in parsed.items():
+        for key, value in video_info.items():
             if isinstance(value, str):
                 # For non-standard fields, check for command injection
                 if key not in standard_fields:
                     for pattern in command_injection_patterns:
                         if re.search(pattern, value):
-                            raise SecurityError(f"JSON field '{key}' contains dangerous pattern: {pattern}")
-                # For URL fields, use URL validation (done later)
-                # For other standard fields, they have their own validation
-                # Safe display fields (like title) don't need command injection checking
+                            raise SecurityError(f"Video {index} field '{key}' contains dangerous pattern: {pattern}")
         
         # Validate and sanitize title if present
-        if 'title' in parsed:
-            title = parsed.get('title')
+        if 'title' in video_info:
+            title = video_info.get('title')
             if isinstance(title, str):
                 if len(title) > InputValidator.MAX_TITLE_LENGTH:
-                    raise SecurityError(f"Title too long (max {InputValidator.MAX_TITLE_LENGTH} characters)")
-                parsed['title'] = InputValidator.sanitize_html_field(title)
-            elif title is not None: # Allow null title, but not other types
-                raise SecurityError("Title must be a string or null")
+                    raise SecurityError(f"Video {index} title too long (max {InputValidator.MAX_TITLE_LENGTH} characters)")
+                video_info['title'] = InputValidator.sanitize_html_field(title)
+            elif title is not None:
+                raise SecurityError(f"Video {index} title must be a string or null")
 
-        return parsed
+        return video_info
 
     @staticmethod
     def sanitize_html_field(text: str) -> str:
@@ -483,8 +521,32 @@ class CommandSanitizer:
         
         return validated_args
 
+def _validate_video_info(video_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate individual video information"""
+    # Validate URL in video info
+    video_info['url'] = InputValidator.validate_url(video_info['url'])
+    
+    # Validate optional fields in video info
+    if 'headers' in video_info:
+        video_info['headers'] = InputValidator.validate_headers(video_info['headers'])
+    
+    if 'cookies' in video_info:
+        video_info['cookies'] = InputValidator.validate_cookies(video_info['cookies'])
+    
+    if 'referer' in video_info:
+        video_info['referer'] = InputValidator.validate_url(video_info['referer'])
+    
+    if 'userAgent' in video_info:
+        # Basic user agent validation
+        ua = video_info['userAgent']
+        if not isinstance(ua, str) or len(ua) > 512:
+            raise SecurityError("Invalid user agent")
+        video_info['userAgent'] = re.sub(r'[^\x20-\x7E]', '', ua)
+    
+    return video_info
+
 def validate_download_request(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Comprehensive validation of download request data"""
+    """Comprehensive validation of download request data - supports multi-video downloads"""
     try:
         validated = {}
         
@@ -499,32 +561,26 @@ def validate_download_request(data: Dict[str, Any]) -> Dict[str, Any]:
             url = data.get('url', '').strip()
             validated['url'] = InputValidator.validate_url(url)
             validated['stream_info'] = {'url': validated['url']}
+            validated['is_multi'] = False
             
         elif mode == 'json':
             json_str = data.get('json_string', '')
             parsed_json = InputValidator.validate_json_input(json_str)
             
-            # Validate URL in JSON
-            parsed_json['url'] = InputValidator.validate_url(parsed_json['url'])
-            
-            # Validate optional fields in JSON
-            if 'headers' in parsed_json:
-                parsed_json['headers'] = InputValidator.validate_headers(parsed_json['headers'])
-            
-            if 'cookies' in parsed_json:
-                parsed_json['cookies'] = InputValidator.validate_cookies(parsed_json['cookies'])
-            
-            if 'referer' in parsed_json:
-                parsed_json['referer'] = InputValidator.validate_url(parsed_json['referer'])
-            
-            if 'userAgent' in parsed_json:
-                # Basic user agent validation
-                ua = parsed_json['userAgent']
-                if not isinstance(ua, str) or len(ua) > 512:
-                    raise SecurityError("Invalid user agent")
-                parsed_json['userAgent'] = re.sub(r'[^\x20-\x7E]', '', ua)
-            
-            validated['stream_info'] = parsed_json
+            if parsed_json.get('is_multi', False):
+                # Multi-video request
+                validated['is_multi'] = True
+                validated['videos'] = []
+                
+                for video_info in parsed_json['videos']:
+                    validated_video = _validate_video_info(video_info)
+                    validated['videos'].append(validated_video)
+                    
+            else:
+                # Single video request
+                validated['is_multi'] = False
+                validated_video = _validate_video_info(parsed_json)
+                validated['stream_info'] = validated_video
         
         # Validate basic options
         validated['format'] = InputValidator.validate_format(data.get('format', 'mp4'))
