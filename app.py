@@ -89,7 +89,18 @@ CSP_STRING = (
     "script-src 'self' https://cdn.jsdelivr.net; "
     "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
     "img-src 'self' data:; "
-    "font-src 'self' https://cdn.jsdelivr.net;"
+    "font-src 'self' https://cdn.jsdelivr.net; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self';"
+)
+
+# Permissions Policy for enhanced security
+PERMISSIONS_POLICY = (
+    "geolocation=(), microphone=(), camera=(), "
+    "payment=(), usb=(), magnetometer=(), gyroscope=(), "
+    "accelerometer=(), ambient-light-sensor=(), autoplay=(), "
+    "encrypted-media=(), fullscreen=(), picture-in-picture=()"
 )
 
 # Import our existing video downloader
@@ -104,6 +115,15 @@ from performance_optimizer import performance_monitor, get_performance_report
 app = Flask(__name__)
 app.config['SECRET_KEY'] = SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+# Enhanced security configuration for session cookies
+app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION  # Only send over HTTPS in production
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access
+app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'  # CSRF protection
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour session timeout
+
+# Template security - ensure auto-escaping is enabled (Flask default)
+app.jinja_env.autoescape = True
 
 # Enable CORS for extension integration
 CORS(app, origins=CORS_ORIGINS)
@@ -1072,10 +1092,28 @@ cleanup_thread.start()
 
 @app.after_request
 def add_security_headers(response):
+    # Content Security Policy
     response.headers['Content-Security-Policy'] = CSP_STRING
+    
+    # Standard security headers
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Enhanced security headers
+    if IS_PRODUCTION:
+        # HSTS - only in production with HTTPS
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
+    
+    # Permissions Policy to restrict browser features
+    response.headers['Permissions-Policy'] = PERMISSIONS_POLICY
+    
+    # Additional security headers
+    response.headers['X-Permitted-Cross-Domain-Policies'] = 'none'
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
+    
     return response
 
 if __name__ == '__main__':
