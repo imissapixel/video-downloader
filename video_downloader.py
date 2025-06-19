@@ -586,8 +586,8 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
         else:
             cmd.append("--no-keep-fragments")  # Delete fragments after download
 
-        # Post-processing: Convert to H.264 only if format is MP4
-        if format.lower() == "mp4":
+        # Post-processing: Convert to H.264 only if format is MP4 and NOT audio-only
+        if format.lower() == "mp4" and not advanced_options.get('extractAudio', False):
             # Use recommended settings from yt-dlp documentation for MP4
             cmd.extend([
                 # Use libx264 for video, aac for audio, and optimize for streaming
