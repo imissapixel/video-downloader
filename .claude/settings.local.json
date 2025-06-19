@@ -79,7 +79,18 @@
       "Bash(git commit -m \"$(cat <<'EOF'\nUpdate video downloader with enhanced features and security\n\n- Enhanced security with rate limiting and input validation\n- Added performance optimization utilities\n- Updated documentation and setup guides\n- Improved user interface and error handling\n- Added security testing and utilities\n- Updated dependencies and configuration\n\n🤖 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git pull origin master)",
       "Bash(git pull --rebase origin master)",
-      "Bash(git commit --amend --no-edit)"
+      "Bash(git commit --amend --no-edit)",
+      "Bash(python app.py)",
+      "Bash(python3 -c \"from video_downloader import download_video; print('video_downloader import success')\")",
+      "Bash(python3 -c \"from security_utils import validate_download_request; print('security_utils import success')\")",
+      "Bash(python3 -c \"from rate_limiter import rate_limit; print('rate_limiter import success')\")",
+      "Bash(python3 test_download.py)",
+      "Bash(rm test_download.py)",
+      "Bash(pkill -f \"python3 app.py\")",
+      "Bash(true)",
+      "Bash(grep -n \"^def \" app.py)",
+      "Bash(grep -n -i \"history\" /home/kilombo/code/video-downloader/templates/index.html)",
+      "Bash(grep -n \"Paste JSON\" /home/kilombo/code/video-downloader/templates/index.html)"
     ],
     "deny": []
   }

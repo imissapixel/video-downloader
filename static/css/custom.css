@@ -1,5 +1,59 @@
 /* Custom styles for Video Downloader Web Interface */
 
+/* Hide error section by default */
+#errorSection {
+    display: none !important;
+}
+
+/* Show error section when it has this class */
+#errorSection.show-error {
+    display: flex !important;
+}
+
+/* Smooth progress bar animation */
+.progress-bar {
+    transition: width 0.5s ease;
+}
+
+/* History section styling */
+.history-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.history-item {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6 !important;
+    transition: all 0.2s ease;
+}
+
+.history-item:hover {
+    background: #e9ecef;
+    border-color: #adb5bd !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.history-item .btn {
+    transition: all 0.2s ease;
+}
+
+.history-item .btn:hover {
+    transform: scale(1.05);
+}
+
+/* History title styling */
+.history-title {
+    word-wrap: break-word;
+    word-break: break-word;
+    line-height: 1.3;
+    max-height: 2.6em; /* Allow for 2 lines */
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
 :root {
     --primary-color: #0d6efd;
     --success-color: #198754;

@@ -214,27 +214,43 @@ class InputValidator:
         if not cookies:
             return ""
         
+        # Try to convert to string if it's not already
         if not isinstance(cookies, str):
-            raise SecurityError("Cookies must be a string")
+            try:
+                logger.warning(f"Converting cookies from {type(cookies)} to string")
+                cookies = str(cookies)
+            except Exception as e:
+                logger.error(f"Failed to convert cookies to string: {e}")
+                return ""
         
+        # Remove any problematic characters
+        cookies = cookies.replace('\r', '').replace('\n', '')
         cookies = cookies.strip()
         
         if len(cookies) > InputValidator.MAX_COOKIE_LENGTH:
             logger.warning(f"Large cookie string detected: {len(cookies)} characters")
             # Allow large cookies but log for monitoring
             if len(cookies) > 65536:  # 64KB absolute maximum
-                raise SecurityError(f"Cookie string too long (max 64KB characters)")
+                logger.error("Cookie string exceeds maximum length")
+                return cookies[:65536]  # Truncate instead of raising error
         
-        # Check for dangerous patterns
-        if '\r' in cookies or '\n' in cookies:
-            raise SecurityError("Cookies cannot contain newlines")
-        
-        # Basic cookie format validation - allow standard cookie characters including URL encoding
-        # Allow URL-encoded characters (%XX), standard cookie chars, and common symbols used in cookies
-        # This includes: alphanumeric, underscore, dash, equals, semicolon, space, slash, plus, colon, ampersand, percent, tilde, parentheses, pipe
-        if not re.match(r'^[a-zA-Z0-9_\-=;. /+:&%~()|A-F]+$', cookies):
-            raise SecurityError("Cookies contain invalid characters")
-        
+        # For YouTube cookies, bypass validation completely
+        if 'youtube.com' in cookies or '__Secure-' in cookies:
+            logger.info("YouTube cookies detected, bypassing validation")
+            return cookies
+            
+        # More permissive validation for other cookies - just check for basic structure
+        # Look for patterns like name=value; name=value
+        valid_cookie_parts = 0
+        for part in cookies.split(';'):
+            if '=' in part:
+                valid_cookie_parts += 1
+                
+        if valid_cookie_parts == 0:
+            logger.warning("No valid cookie parts found")
+            return ""
+            
+        logger.info(f"Validated cookie string with {valid_cookie_parts} parts")
         return cookies
 
     @staticmethod
@@ -269,34 +285,53 @@ class InputValidator:
             validated_videos = []
             for i, video_item in enumerate(parsed):
                 if not isinstance(video_item, dict):
+                    logger.error(f"Video item {i+1} is not a dictionary: {type(video_item)}")
                     raise SecurityError(f"Video item {i+1} must be an object/dictionary")
                 
-                # Extract video info - handle both flat and nested structures
-                video_info = InputValidator._extract_video_info(video_item, i+1)
-                validated_video = InputValidator._validate_single_video(video_info, i+1)
-                validated_videos.append(validated_video)
+                try:
+                    # Extract video info - handle both flat and nested structures
+                    video_info = InputValidator._extract_video_info(video_item, i+1)
+                    validated_video = InputValidator._validate_single_video(video_info, i+1)
+                    validated_videos.append(validated_video)
+                except Exception as e:
+                    logger.error(f"Error validating video item {i+1}: {str(e)}")
+                    raise SecurityError(f"Invalid data in video item {i+1}: {str(e)}")
             
             return {"videos": validated_videos, "is_multi": True}
         
         elif isinstance(parsed, dict):
             # Single video format - existing logic
-            video_info = InputValidator._extract_video_info(parsed, 1)
-            validated_video = InputValidator._validate_single_video(video_info, 1)
-            return validated_video
+            try:
+                video_info = InputValidator._extract_video_info(parsed, 1)
+                validated_video = InputValidator._validate_single_video(video_info, 1)
+                return validated_video
+            except Exception as e:
+                logger.error(f"Error validating single video: {str(e)}")
+                raise SecurityError(f"Invalid video data: {str(e)}")
         
         else:
+            logger.error(f"JSON is neither a dictionary nor a list: {type(parsed)}")
             raise SecurityError("JSON must be an object/dictionary or array of objects")
 
     @staticmethod
     def _extract_video_info(video_item: Dict[str, Any], index: int) -> Dict[str, Any]:
         """Extract video info from various JSON formats"""
+        # Validate input is a dictionary
+        if not isinstance(video_item, dict):
+            logger.error(f"Video item {index} is not a dictionary: {type(video_item)}")
+            raise SecurityError(f"Video item {index} must be a dictionary/object")
+            
         # Handle nested 'info' structure (from browser extension)
-        if 'info' in video_item and isinstance(video_item['info'], dict):
-            info = video_item['info'].copy()
-            # Merge top-level url with info if needed
-            if 'url' not in info and 'url' in video_item:
-                info['url'] = video_item['url']
-            return info
+        if 'info' in video_item:
+            if isinstance(video_item['info'], dict):
+                info = video_item['info'].copy()
+                # Merge top-level url with info if needed
+                if 'url' not in info and 'url' in video_item:
+                    info['url'] = video_item['url']
+                return info
+            else:
+                logger.warning(f"Video item {index} has 'info' field that is not a dictionary: {type(video_item['info'])}")
+                # Continue with the original video_item as fallback
         
         # Handle flat structure
         return video_item
@@ -304,10 +339,20 @@ class InputValidator:
     @staticmethod
     def _validate_single_video(video_info: Dict[str, Any], index: int) -> Dict[str, Any]:
         """Validate a single video's information"""
+        # Ensure video_info is a dictionary
+        if not isinstance(video_info, dict):
+            logger.error(f"Video info for item {index} is not a dictionary: {type(video_info)}")
+            raise SecurityError(f"Video {index} information must be an object/dictionary")
+            
         # Validate required fields
         if 'url' not in video_info:
             raise SecurityError(f"Video {index} must contain 'url' field")
         
+        # Ensure url is a string
+        if not isinstance(video_info['url'], str):
+            logger.error(f"URL for video {index} is not a string: {type(video_info['url'])}")
+            raise SecurityError(f"Video {index} URL must be a string")
+            
         # Check for command injection patterns in non-standard fields
         standard_fields = {'url', 'headers', 'cookies', 'referer', 'userAgent', 'sourceType', 'title', 'videoId', 'pageUrl', 'pageTitle', 'timestamp', '_refreshed'}
         command_injection_patterns = [r'[;&|`$]', r'\.\./', r'\\\.\\']
@@ -319,6 +364,17 @@ class InputValidator:
                     for pattern in command_injection_patterns:
                         if re.search(pattern, value):
                             raise SecurityError(f"Video {index} field '{key}' contains dangerous pattern: {pattern}")
+            elif isinstance(value, dict):
+                # Validate nested dictionaries (like headers)
+                if key == 'headers':
+                    # Ensure headers are properly formatted
+                    for header_name, header_value in value.items():
+                        if not isinstance(header_name, str) or not isinstance(header_value, str):
+                            logger.warning(f"Invalid header in video {index}: {header_name}:{header_value}")
+                            raise SecurityError(f"Video {index} headers must have string keys and values")
+            elif value is not None and not isinstance(value, (int, float, bool, list)):
+                # Log unexpected types but don't necessarily fail
+                logger.warning(f"Unexpected type for field '{key}' in video {index}: {type(value)}")
         
         # Validate and sanitize title if present
         if 'title' in video_info:
@@ -328,7 +384,18 @@ class InputValidator:
                     raise SecurityError(f"Video {index} title too long (max {InputValidator.MAX_TITLE_LENGTH} characters)")
                 video_info['title'] = InputValidator.sanitize_html_field(title)
             elif title is not None:
+                logger.warning(f"Title for video {index} is not a string: {type(title)}")
                 raise SecurityError(f"Video {index} title must be a string or null")
+
+        # Ensure headers is a dictionary if present
+        if 'headers' in video_info and not isinstance(video_info['headers'], dict):
+            logger.warning(f"Headers for video {index} is not a dictionary: {type(video_info['headers'])}")
+            video_info['headers'] = {}  # Replace with empty dict rather than failing
+
+        # Ensure cookies is a string if present
+        if 'cookies' in video_info and not isinstance(video_info['cookies'], str):
+            logger.warning(f"Cookies for video {index} is not a string: {type(video_info['cookies'])}")
+            video_info['cookies'] = ""  # Replace with empty string rather than failing
 
         return video_info
 

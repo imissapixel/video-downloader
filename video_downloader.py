@@ -108,14 +108,22 @@ def create_temp_cookies_file(cookies, url):
     if not cookies:
         logger.info("No cookies provided")
         return None
-    
+
+    # Ensure cookies is a string
+    if not isinstance(cookies, str):
+        logger.error(f"Cookies is not a string: {type(cookies)}")
+        return None
+        
+    # Remove any problematic characters that might cause parsing issues
+    cookies = cookies.replace('\n', '').replace('\r', '')
+        
     logger.info(f"Processing cookies for URL: {url}")
     logger.info(f"Cookies length: {len(cookies)} characters")
-    
+
     # Count cookies for debugging
     cookie_count = len([c for c in cookies.split(';') if '=' in c.strip()])
     logger.info(f"Found {cookie_count} cookies to process")
-    
+
     try:
         fd, cookies_file = tempfile.mkstemp(suffix='.txt')
         os.close(fd)
@@ -123,13 +131,17 @@ def create_temp_cookies_file(cookies, url):
             # Write Netscape cookie file header
             f.write("# Netscape HTTP Cookie File\n")
             f.write("# This is a generated file! Do not edit.\n\n")
-            
+
             parsed_url = urlparse(url)
             domain = parsed_url.netloc
-            
+
             # Always use .youtube.com for YouTube cookies to ensure compatibility
             if 'youtube.com' in domain or 'youtu.be' in domain:
                 base_domain = '.youtube.com'
+                # For YouTube, we need to ensure we have the correct domain format
+                # This is critical for authentication to work properly
+                if not domain.startswith('.'):
+                    domain = '.' + domain
             else:
                 # Get the base domain for other sites
                 domain_parts = domain.split('.')
@@ -137,51 +149,98 @@ def create_temp_cookies_file(cookies, url):
                     base_domain = '.' + '.'.join(domain_parts[-2:])
                 else:
                     base_domain = domain
-            
+                    
+            # Ensure domain starts with a dot for proper cookie matching
+            if not base_domain.startswith('.'):
+                base_domain = '.' + base_domain
+
             # Split cookies by semicolon and process each one
             written_cookies = 0
             critical_youtube_cookies = ['VISITOR_INFO1_LIVE', 'YSC', 'GPS', 'PREF', 'CONSENT']
             found_critical = []
-            
-            for cookie in cookies.split(';'):
-                cookie = cookie.strip()
-                if '=' in cookie:
-                    name, value = cookie.split('=', 1)
-                    name = name.strip()
-                    value = value.strip()
-                    
-                    # Skip empty cookies
-                    if not name or not value:
-                        continue
-                    
-                    # Track critical YouTube cookies
-                    if name in critical_youtube_cookies:
-                        found_critical.append(name)
-                    
-                    # Use base domain for all cookies (YouTube needs this)
-                    cookie_domain = base_domain
-                    domain_specified = "TRUE"
-                    
-                    # Set secure flag for __Secure- prefixed cookies and HTTPS sites
-                    secure_flag = "TRUE" if (name.startswith('__Secure-') or name.startswith('__Host-') or 
-                                          parsed_url.scheme == 'https') else "FALSE"
-                    
-                    # Set expiration to far future (2038-01-19)
-                    expires = "2147483647"
-                    
-                    # Format: domain, domain_specified, path, secure, expires, name, value
-                    f.write(f"{cookie_domain}\tTRUE\t/\t{secure_flag}\t{expires}\t{name}\t{value}\n")
-                    written_cookies += 1
-            
+
+            # Handle YouTube cookies specially
+            if 'youtube.com' in domain or 'youtu.be' in domain:
+                logger.info("Processing YouTube cookies")
+                
+                try:
+                    for cookie in cookies.split(';'):
+                        cookie = cookie.strip()
+                        if '=' in cookie:
+                            parts = cookie.split('=', 1)
+                            if len(parts) == 2:
+                                name, value = parts
+                                name = name.strip()
+                                value = value.strip()
+
+                                # Skip empty cookies
+                                if not name or not value:
+                                    continue
+
+                                # Track critical YouTube cookies
+                                if name in critical_youtube_cookies:
+                                    found_critical.append(name)
+
+                                # Use base domain for all cookies (YouTube needs this)
+                                cookie_domain = base_domain
+                                domain_specified = "TRUE"
+
+                                # Set secure flag for __Secure- prefixed cookies and HTTPS sites
+                                secure_flag = "TRUE" if (name.startswith('__Secure-') or name.startswith('__Host-') or
+                                                      parsed_url.scheme == 'https') else "FALSE"
+
+                                # Set expiration to far future (2038-01-19)
+                                expires = "2147483647"
+
+                                # Format: domain, domain_specified, path, secure, expires, name, value
+                                f.write(f"{cookie_domain}\tTRUE\t/\t{secure_flag}\t{expires}\t{name}\t{value}\n")
+                                written_cookies += 1
+                except Exception as e:
+                    logger.error(f"Error processing YouTube cookies: {e}")
+                    # Write the cookies as a single line as fallback
+                    f.write(f".youtube.com\tTRUE\t/\tTRUE\t2147483647\tYOUTUBE_COOKIES\t{cookies}\n")
+                    written_cookies = 1
+            else:
+                # Standard cookie processing for non-YouTube sites
+                for cookie in cookies.split(';'):
+                    cookie = cookie.strip()
+                    if '=' in cookie:
+                        try:
+                            name, value = cookie.split('=', 1)
+                            name = name.strip()
+                            value = value.strip()
+
+                            # Skip empty cookies
+                            if not name or not value:
+                                continue
+
+                            # Use base domain for all cookies
+                            cookie_domain = base_domain
+                            domain_specified = "TRUE"
+
+                            # Set secure flag for __Secure- prefixed cookies and HTTPS sites
+                            secure_flag = "TRUE" if (name.startswith('__Secure-') or name.startswith('__Host-') or
+                                                  parsed_url.scheme == 'https') else "FALSE"
+
+                            # Set expiration to far future (2038-01-19)
+                            expires = "2147483647"
+
+                            # Format: domain, domain_specified, path, secure, expires, name, value
+                            f.write(f"{cookie_domain}\tTRUE\t/\t{secure_flag}\t{expires}\t{name}\t{value}\n")
+                            written_cookies += 1
+                        except Exception as e:
+                            logger.warning(f"Skipping invalid cookie: {cookie}, error: {e}")
+                            continue
+
             logger.info(f"Wrote {written_cookies} cookies to file")
             logger.info(f"Critical YouTube cookies found: {found_critical}")
             missing_critical = [c for c in critical_youtube_cookies if c not in found_critical]
             if missing_critical:
                 logger.warning(f"Missing critical YouTube cookies: {missing_critical}")
                 logger.warning("This may cause authentication failures. Ensure your browser extension captures HttpOnly cookies.")
-        
+
         logger.debug(f"Created temporary cookies file: {cookies_file}")
-        
+
         # Debug: Print the cookies file content
         if logger.level <= logging.DEBUG:
             try:
@@ -189,7 +248,7 @@ def create_temp_cookies_file(cookies, url):
                     logger.debug(f"Cookies file content:\n{f.read()}")
             except Exception as e:
                 logger.debug(f"Could not read cookies file for debug: {e}")
-        
+
         return cookies_file
     except Exception as e:
         logger.warning(f"Failed to create cookies file: {e}")
@@ -198,128 +257,232 @@ def create_temp_cookies_file(cookies, url):
 def download_with_ytdlp(url, output_dir, format="mp4", quality="best", custom_filename=None,
                         headers=None, cookies=None, referer=None, user_agent=None, verbose=False, progress_callback=None, **advanced_options):
     cookies_file = None
-    
+
     # For YouTube URLs, try multiple approaches
     if is_youtube_url(url):
-        if progress_callback:
-            progress_callback("Analyzing YouTube video...")
         logger.info("YouTube URL detected. Trying multiple download strategies...")
-        
-        # Strategy 1: Try without cookies first (often works)
+        # Create a status update that's compatible with our progress_callback
         if progress_callback:
-            progress_callback("Attempting download without authentication...")
-        result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
-                                    headers, None, referer, user_agent, verbose, progress_callback, strategy="no_auth")
-        if result["success"]:
-            return result
-        
-        # Strategy 2: Try with provided cookies
+            try:
+                # Use simple string for progress callback to avoid errors
+                progress_callback("Analyzing YouTube video...")
+                logger.info("Progress callback called successfully with string")
+            except Exception as e:
+                logger.error(f"Error calling progress_callback: {e}")
+                # Continue without progress updates
+
+        # Strategy 1: Try with provided cookies first for YouTube (most reliable)
         if cookies:
-            if progress_callback:
-                progress_callback("Attempting download with authentication...")
             logger.info("Trying with provided cookies...")
-            result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
+            if progress_callback:
+                try:
+                    progress_callback("Attempting download with authentication...")
+                    logger.info("Progress callback called successfully")
+                except Exception as e:
+                    logger.error(f"Error calling progress_callback: {e}")
+                        
+            result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
                                         headers, cookies, referer, user_agent, verbose, progress_callback, strategy="with_cookies")
             if result["success"]:
                 return result
-        
-        # Strategy 3: Try with different client settings
+                
+        # Strategy 2: Try without cookies (sometimes works for public videos)
         if progress_callback:
-            progress_callback("Trying alternative download method...")
+            try:
+                progress_callback("Attempting download without authentication...")
+            except Exception as e:
+                logger.error(f"Error calling progress_callback: {e}")
+                    
+        result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
+                                    headers, None, referer, user_agent, verbose, progress_callback, strategy="no_auth")
+        if result["success"]:
+            return result
+
+        # Strategy 3: Try with different client settings
         logger.info("Trying with alternative client settings...")
-        result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
+        if progress_callback:
+            try:
+                progress_callback("Trying alternative download method...")
+            except Exception as e:
+                logger.error(f"Error calling progress_callback: {e}")
+                    
+        result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
                                     headers, cookies, referer, user_agent, verbose, progress_callback, strategy="alternative")
         if result["success"]:
             return result
-        
+
         # Strategy 4: Try browser cookies approach (if running on a system with Chrome)
         try:
-            if progress_callback:
-                progress_callback("Attempting browser cookie extraction...")
             logger.info("Trying with browser cookies extraction...")
-            result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
+            if progress_callback:
+                try:
+                    progress_callback("Attempting browser cookie extraction...")
+                except Exception as e:
+                    logger.error(f"Error calling progress_callback: {e}")
+                        
+            result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
                                         headers, None, referer, user_agent, verbose, progress_callback, strategy="browser_cookies")
             if result["success"]:
                 return result
         except Exception as e:
             logger.info(f"Browser cookies strategy failed: {e}")
-        
+            
+        # Strategy 5: Last resort - try with cookies in a different format
+        if cookies:
+            logger.info("Trying with alternative cookie format...")
+            if progress_callback:
+                try:
+                    progress_callback("Trying alternative cookie format...")
+                except Exception as e:
+                    logger.error(f"Error calling progress_callback: {e}")
+            
+            # Create a simplified cookies file directly
+            try:
+                fd, cookies_file = tempfile.mkstemp(suffix='.txt')
+                os.close(fd)
+                with open(cookies_file, 'w') as f:
+                    f.write("# Netscape HTTP Cookie File\n")
+                    f.write("# This is a generated file! Do not edit.\n\n")
+                    f.write(f".youtube.com\tTRUE\t/\tTRUE\t2147483647\tYOUTUBE_COOKIES\t{cookies}\n")
+                
+                cmd = [
+                    "yt-dlp",
+                    "--cookies", cookies_file,
+                    "--format", "best",  # Use best available format
+                    "--output", os.path.join(output_dir, "%(title)s.%(ext)s"),
+                    "--no-playlist",     # Don't download playlists
+                    "--no-check-certificate",  # Avoid certificate issues
+                    "--socket-timeout", "30",  # Prevent hanging
+                    "--retries", "5",    # More retries for this last attempt
+                    "--continue",        # Resume partial downloads
+                    "--mark-watched",    # Mark as watched if logged in
+                    "--extractor-args", "youtube:player_client=web,android",
+                    url
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    return {"success": True, "file": "Downloaded"}
+            except Exception as e:
+                logger.error(f"Alternative cookie format failed: {e}")
+            finally:
+                if cookies_file and os.path.exists(cookies_file):
+                    try:
+                        os.remove(cookies_file)
+                    except:
+                        pass
+
         return {"success": False, "error": "All YouTube download strategies failed"}
-    
+
     # For non-YouTube URLs, use the standard approach
     if progress_callback:
-        progress_callback("Downloading media...")
-    return _try_ytdlp_download(url, output_dir, format, quality, custom_filename, 
+        try:
+            progress_callback({"status": "downloading", "message": "Downloading media..."})
+        except Exception:
+            try:
+                progress_callback("Downloading media...")
+            except Exception:
+                pass
+    return _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
                               headers, cookies, referer, user_agent, verbose, progress_callback, strategy="standard", **advanced_options)
 
 def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_filename=None,
                        headers=None, cookies=None, referer=None, user_agent=None, verbose=False, progress_callback=None, strategy="standard", **advanced_options):
     cookies_file = None
     try:
+        logger.info(f"_try_ytdlp_download called with strategy={strategy}, url={url[:30]}...")
+        logger.info(f"Output directory: {output_dir}")
+        logger.info(f"Format: {format}, Quality: {quality}")
+        
         # Security: Validate all inputs
         if not is_url(url):
+            logger.error(f"Invalid URL: {url[:30]}...")
             return {"success": False, "error": "Invalid URL"}
-        
+
+        # Check if output directory exists
+        if not os.path.exists(output_dir):
+            logger.warning(f"Output directory does not exist: {output_dir}")
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                logger.info(f"Created output directory: {output_dir}")
+            except Exception as e:
+                logger.error(f"Failed to create output directory: {e}")
+                return {"success": False, "error": f"Failed to create output directory: {str(e)}"}
+
         # Sanitize output directory and filename
         safe_output_dir = str(Path(output_dir).resolve())
+        logger.info(f"Safe output directory: {safe_output_dir}")
+        
         if custom_filename:
             safe_filename = sanitize_filename(custom_filename)
             output_template = os.path.join(safe_output_dir, f"{safe_filename}.%(ext)s")
         else:
             output_template = os.path.join(safe_output_dir, "%(title)s.%(ext)s")
-        
+            
+        logger.info(f"Output template: {output_template}")
+
         # Debug logging for format selection
         if verbose:
             logger.info(f"Selecting format for quality: {quality}")
-        
-        # Validate format selection - prioritize H.264 codec for compatibility
+
+        # Validate format selection using best practices from yt-dlp documentation
         if quality == "2160p":
-            # 4K quality - prioritize H.264 codec
-            format_selection = "bestvideo[height<=2160][vcodec^=avc1]+bestaudio/bestvideo[height<=2160][vcodec^=h264]+bestaudio/bestvideo[height<=2160]+bestaudio"
+            # 4K quality - prioritize H.264 codec for compatibility
+            format_selection = "bestvideo[height<=2160][vcodec^=avc1]+bestaudio/bestvideo[height<=2160][vcodec^=h264]+bestaudio/bestvideo[height<=2160]+bestaudio/best[height<=2160]"
         elif quality == "1440p":
-            # 2K quality - prioritize H.264 codec
-            format_selection = "bestvideo[height<=1440][vcodec^=avc1]+bestaudio/bestvideo[height<=1440][vcodec^=h264]+bestaudio/bestvideo[height<=1440]+bestaudio"
+            # 2K quality - prioritize H.264 codec for compatibility
+            format_selection = "bestvideo[height<=1440][vcodec^=avc1]+bestaudio/bestvideo[height<=1440][vcodec^=h264]+bestaudio/bestvideo[height<=1440]+bestaudio/best[height<=1440]"
         elif quality == "1080p":
-            # 1080p quality - prioritize H.264 codec
-            format_selection = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][vcodec^=h264]+bestaudio/bestvideo[height<=1080]+bestaudio"
+            # 1080p quality - prioritize H.264 codec for compatibility
+            format_selection = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][vcodec^=h264]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
         elif quality == "1080p60":
-            # 1080p 60fps - prioritize H.264 codec
-            format_selection = "bestvideo[height<=1080][fps>=50][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][fps>=50][vcodec^=h264]+bestaudio/bestvideo[height<=1080][fps>=50]+bestaudio"
+            # 1080p 60fps - prioritize H.264 codec for compatibility
+            format_selection = "bestvideo[height<=1080][fps>=50][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][fps>=50][vcodec^=h264]+bestaudio/bestvideo[height<=1080][fps>=50]+bestaudio/best[height<=1080][fps>=50]"
         elif quality == "720p":
-            # 720p quality - prioritize H.264 codec
-            format_selection = "bestvideo[height<=720][vcodec^=avc1]+bestaudio/bestvideo[height<=720][vcodec^=h264]+bestaudio/bestvideo[height<=720]+bestaudio"
+            # 720p quality - prioritize H.264 codec for compatibility
+            format_selection = "bestvideo[height<=720][vcodec^=avc1]+bestaudio/bestvideo[height<=720][vcodec^=h264]+bestaudio/bestvideo[height<=720]+bestaudio/best[height<=720]"
         elif quality == "720p60":
-            # 720p 60fps - prioritize H.264 codec
-            format_selection = "bestvideo[height<=720][fps>=50][vcodec^=avc1]+bestaudio/bestvideo[height<=720][fps>=50][vcodec^=h264]+bestaudio/bestvideo[height<=720][fps>=50]+bestaudio"
+            # 720p 60fps - prioritize H.264 codec for compatibility
+            format_selection = "bestvideo[height<=720][fps>=50][vcodec^=avc1]+bestaudio/bestvideo[height<=720][fps>=50][vcodec^=h264]+bestaudio/bestvideo[height<=720][fps>=50]+bestaudio/best[height<=720][fps>=50]"
         elif quality == "480p":
-            # 480p quality - prioritize H.264 codec
-            format_selection = "bestvideo[height<=480][vcodec^=avc1]+bestaudio/bestvideo[height<=480][vcodec^=h264]+bestaudio/bestvideo[height<=480]+bestaudio"
+            # 480p quality - prioritize H.264 codec for compatibility
+            format_selection = "bestvideo[height<=480][vcodec^=avc1]+bestaudio/bestvideo[height<=480][vcodec^=h264]+bestaudio/bestvideo[height<=480]+bestaudio/best[height<=480]"
         elif quality == "360p":
-            # 360p quality - prioritize H.264 codec
-            format_selection = "bestvideo[height<=360][vcodec^=avc1]+bestaudio/bestvideo[height<=360][vcodec^=h264]+bestaudio/bestvideo[height<=360]+bestaudio"
+            # 360p quality - prioritize H.264 codec for compatibility
+            format_selection = "bestvideo[height<=360][vcodec^=avc1]+bestaudio/bestvideo[height<=360][vcodec^=h264]+bestaudio/bestvideo[height<=360]+bestaudio/best[height<=360]"
+        elif quality == "best":
+            # Best quality available - no restrictions
+            format_selection = "bestvideo+bestaudio/best"
         else:
             # Fallback for any other quality - default to 1080p
-            format_selection = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][vcodec^=h264]+bestaudio/bestvideo[height<=1080]+bestaudio"
-        
-        # Build command based on strategy
+            format_selection = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][vcodec^=h264]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+
+        # Build command based on strategy and yt-dlp documentation
         cmd = [
             "yt-dlp",
             "--format", format_selection,
             "--merge-output-format", format,
             "--output", output_template,
-            "--no-playlist",
-            "--no-check-certificate",  # Avoid certificate issues
+            "--no-playlist",            # Don't download playlists
+            "--no-check-certificate",   # Avoid certificate issues
             "--socket-timeout", "30",   # Prevent hanging
             "--retries", "3",           # Limit retries
+            "--fragment-retries", "10", # Retry fragments 10 times
             "--no-abort-on-error",      # Continue on errors
-            "--ignore-errors"           # Ignore download errors
+            "--ignore-errors",          # Ignore download errors
+            "--no-overwrites",          # Don't overwrite files
+            "--continue",               # Resume partial downloads
+            "--no-cache-dir",           # Disable cache
+            "--newline",                # Force progress on newline for better parsing
+            "--progress",               # Show progress bar
+            "--console-title"           # Show progress in console title
         ]
-        
+
         # Debug: Log the exact command being executed
         if verbose:
             logger.info(f"Format selection string: {format_selection}")
             logger.info(f"Full yt-dlp command: {' '.join(cmd[:10])}...")  # Show first part of command
-        
+
         # Add strategy-specific options
         if strategy == "no_auth":
             # Try without authentication, use basic settings
@@ -344,27 +507,30 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
             # Standard or with_cookies strategy
             if is_youtube_url(url):
                 cmd.extend([
+                    # Use web and android clients for better format selection
                     "--extractor-args", "youtube:player_client=web,android",
-                    # Don't skip DASH - it contains the highest quality streams
-                    "--extractor-args", "youtube:skip=translated_subs"
+                    # Skip translated subtitles but keep DASH formats
+                    "--extractor-args", "youtube:skip=translated_subs",
+                    # Mark video as watched if logged in
+                    "--mark-watched"
                 ])
-        
+
         # Add verbosity flag
         cmd.append("--verbose" if verbose else "--quiet")
-        
+
         # Add advanced options
         rate_limit = advanced_options.get('rateLimit', '')
         if rate_limit:
             cmd.extend(["--limit-rate", rate_limit])
-        
+
         retries = advanced_options.get('retries', '10')
         if retries != '10':  # Only add if different from default
             cmd.extend(["--retries", retries])
-        
+
         concurrent_fragments = advanced_options.get('concurrentFragments', '1')
         if concurrent_fragments != '1':  # Only add if different from default
             cmd.extend(["--concurrent-fragments", concurrent_fragments])
-        
+
         # Audio extraction
         if advanced_options.get('extractAudio', False):
             cmd.append("--extract-audio")
@@ -374,43 +540,73 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
             audio_quality = advanced_options.get('audioQuality', 'best')
             if audio_quality != 'best':
                 cmd.extend(["--audio-quality", audio_quality])
-        
-        # Subtitle options
+
+        # Subtitle options - following yt-dlp documentation
         if advanced_options.get('writeSubs', False):
-            cmd.append("--write-subs")
+            cmd.append("--write-subs")  # Write subtitle file
         if advanced_options.get('autoSubs', False):
-            cmd.append("--write-auto-subs")
-        
+            cmd.append("--write-auto-subs")  # Write automatically generated subtitles
+
+        # Handle subtitle languages
         subtitle_langs = advanced_options.get('subtitleLangs', '')
         if subtitle_langs:
-            cmd.extend(["--sub-langs", subtitle_langs])
-        
+            cmd.extend(["--sub-langs", subtitle_langs])  # Languages to download
+        elif advanced_options.get('writeSubs', False) or advanced_options.get('autoSubs', False):
+            # If subs are requested but no language specified, default to all
+            cmd.extend(["--sub-langs", "all"])
+
+        # Handle subtitle format
         subtitle_format = advanced_options.get('subtitleFormat', 'best')
         if subtitle_format != 'best':
             cmd.extend(["--sub-format", subtitle_format])
-        
-        # Embedding options
+        else:
+            # Default to srt if not specified (most compatible)
+            cmd.extend(["--sub-format", "srt/best"])
+
+        # Embedding options - following yt-dlp documentation
         if advanced_options.get('embedSubs', False):
-            cmd.append("--embed-subs")
+            cmd.append("--embed-subs")  # Embed subtitles in the video
+            # Make sure we're writing subs if we want to embed them
+            if not advanced_options.get('writeSubs', False) and not advanced_options.get('autoSubs', False):
+                cmd.append("--write-subs")
+                
         if advanced_options.get('embedThumbnail', False):
-            cmd.append("--embed-thumbnail")
+            cmd.append("--embed-thumbnail")  # Embed thumbnail in the video/audio file
+            # Add yt-dlp recommended option for embedding thumbnails
+            cmd.append("--convert-thumbnails")
+            cmd.append("jpg")
+            
         if advanced_options.get('embedMetadata', False):
-            cmd.append("--embed-metadata")
-        
+            cmd.append("--embed-metadata")  # Embed metadata in the video file
+            cmd.append("--add-metadata")    # Write metadata to file
+
         # Fragment options
         if advanced_options.get('keepFragments', False):
-            cmd.append("--keep-fragments")
+            cmd.append("--keep-fragments")  # Keep downloaded fragments
         else:
-            cmd.append("--no-keep-fragments")
-        
-        # Post-processing: Convert to H.264 only if format is MP4 and video isn't already H.264
+            cmd.append("--no-keep-fragments")  # Delete fragments after download
+
+        # Post-processing: Convert to H.264 only if format is MP4
         if format.lower() == "mp4":
-            # Only convert to H.264 for MP4 format requests
+            # Use recommended settings from yt-dlp documentation for MP4
             cmd.extend([
-                "--postprocessor-args", "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart",
+                # Use libx264 for video, aac for audio, and optimize for streaming
+                "--postprocessor-args", "ffmpeg:-c:v libx264 -preset medium -c:a aac -movflags +faststart",
+                # Force recode to ensure compatibility
                 "--recode-video", "mp4"
             ])
-        
+            # Add additional quality settings if needed
+            if "1080" in quality or "720" in quality:
+                cmd.extend([
+                    # For HD content, use a good balance of quality and size
+                    "--postprocessor-args", "ffmpeg:-crf 18"
+                ])
+            elif "2160" in quality or "1440" in quality:
+                cmd.extend([
+                    # For 4K/2K content, use slightly higher compression
+                    "--postprocessor-args", "ffmpeg:-crf 22"
+                ])
+
         # Security: Validate and sanitize headers
         if headers and isinstance(headers, dict):
             for name, value in headers.items():
@@ -421,33 +617,52 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
                     safe_value = re.sub(r'[\r\n]', '', value)
                     if safe_name and safe_value:
                         cmd.extend(["--add-header", f"{safe_name}: {safe_value}"])
-        
+
         # Security: Handle cookies safely
-        if cookies and isinstance(cookies, str):
-            cookies_file = create_temp_cookies_file(cookies, url)
-            if cookies_file:
-                cmd.extend(["--cookies", cookies_file])
-        
+        if cookies:
+            # Ensure cookies is a string
+            if not isinstance(cookies, str):
+                try:
+                    cookies = str(cookies)
+                    logger.warning("Converted cookies to string")
+                except Exception as e:
+                    logger.error(f"Failed to convert cookies to string: {e}")
+                    cookies = None
+                    
+            if cookies:
+                cookies_file = create_temp_cookies_file(cookies, url)
+                if cookies_file:
+                    cmd.extend(["--cookies", cookies_file])
+                    # For YouTube, add extra arguments to help with authentication
+                    if is_youtube_url(url):
+                        cmd.extend(["--mark-watched"])  # Mark as watched if logged in
+                        cmd.extend(["--no-check-certificates"])  # Skip certificate validation
+
         # Security: Validate referer
         if referer and isinstance(referer, str) and is_url(referer):
             cmd.extend(["--referer", referer])
-        
+
         # Security: Validate user agent
         if user_agent and isinstance(user_agent, str):
             # Remove dangerous characters from user agent
             safe_ua = re.sub(r'[^\w\s\-\.\(\);:/]', '', user_agent)[:512]
             if safe_ua:
                 cmd.extend(["--user-agent", safe_ua])
-        
+
         # Add URL as the last argument
         cmd.append(url)
-        
+
         # Execute with security measures
         logger.debug(f"Executing yt-dlp command: {' '.join(cmd[:5])}... [URL hidden]")
-        
+
         if progress_callback:
-            progress_callback("Downloading media...")
-        
+            try:
+                # Use simple string for progress callback to avoid errors
+                progress_callback("Downloading media...")
+                logger.info("Progress callback called for download start")
+            except Exception as e:
+                logger.error(f"Error calling progress_callback: {e}")
+
         # Use subprocess.run with timeout and security settings
         process = subprocess.Popen(
             cmd,
@@ -457,7 +672,7 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
             cwd=safe_output_dir,  # Set working directory
             env={"PATH": os.environ.get("PATH", "")},  # Minimal environment
         )
-        
+
         # Monitor the process output for progress updates
         download_started = False
         try:
@@ -465,12 +680,12 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
                 # Check if process is still running
                 if process.poll() is not None:
                     break
-                
+
                 # Read stderr line by line for progress info
                 try:
                     import select
                     import sys
-                    
+
                     if sys.platform != 'win32':
                         # Unix-like systems
                         ready, _, _ = select.select([process.stderr], [], [], 0.1)
@@ -478,14 +693,43 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
                             line = process.stderr.readline()
                             if line and progress_callback:
                                 line = line.strip()
-                                if '[download]' in line and '%' in line:
+                                # Log the line for debugging
+                                logger.debug(f"yt-dlp output: {line}")
+                                
+                                # Handle download progress
+                                if '[download]' in line:
                                     if not download_started:
-                                        progress_callback("Downloading media...")
                                         download_started = True
+                                        if progress_callback:
+                                            try:
+                                                progress_callback("Downloading media...")
+                                            except Exception as e:
+                                                logger.error(f"Error in progress callback: {e}")
+                                    
+                                    # Try to extract percentage
+                                    if '%' in line:
+                                        try:
+                                            # Just send the line as a progress update
+                                            if progress_callback:
+                                                progress_callback(f"Download progress: {line}")
+                                        except Exception as e:
+                                            logger.error(f"Error updating progress: {e}")
+                                
+                                # Handle post-processing
                                 elif 'Merging formats' in line or 'Post-processing' in line:
-                                    progress_callback("Converting to H.264 and finalizing...")
+                                    if progress_callback:
+                                        try:
+                                            progress_callback("Converting to H.264 and finalizing...")
+                                        except Exception as e:
+                                            logger.error(f"Error in progress callback: {e}")
+                                            
+                                # Handle cleanup
                                 elif 'Deleting original file' in line:
-                                    progress_callback("Cleaning up temporary files...")
+                                    if progress_callback:
+                                        try:
+                                            progress_callback("Cleaning up temporary files...")
+                                        except Exception as e:
+                                            logger.error(f"Error in progress callback: {e}")
                     else:
                         # Windows - just wait a bit and update periodically
                         import time
@@ -496,15 +740,19 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
                 except:
                     # If monitoring fails, just continue
                     pass
-            
+
             stdout, stderr = process.communicate(timeout=1800)  # 30 minute timeout
         except subprocess.TimeoutExpired:
             process.kill()
             return {"success": False, "error": "Download timeout (30 minutes)"}
-        
+
         if process.returncode == 0:
             if progress_callback:
-                progress_callback("Download completed successfully")
+                try:
+                    progress_callback("Download completed successfully")
+                    logger.info("Final progress callback called")
+                except Exception as e:
+                    logger.error(f"Error in final progress callback: {e}")
             logger.info("Download completed successfully.")
             return {"success": True, "file": "Downloaded"}
         else:
@@ -512,14 +760,14 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
             error_msg = stderr.strip()
             error_msg = re.sub(r'https?://[^\s]+', '[URL]', error_msg)  # Hide URLs
             error_msg = re.sub(r'/[^\s]*', '[PATH]', error_msg)  # Hide paths
-            
+
             # Check for cookie-related errors and provide helpful message
             if "Sign in to confirm you're not a bot" in error_msg or "authentication" in error_msg.lower():
                 error_msg += "\n\n💡 TIP: YouTube cookies expire quickly. Please:\n1. Refresh the YouTube page\n2. Capture fresh cookies from your extension\n3. Try the download immediately"
-            
+
             logger.error(f"yt-dlp error: {error_msg}")
             return {"success": False, "error": error_msg}
-            
+
     except Exception as e:
         logger.exception(f"Exception during yt-dlp download: {str(e)}")
         return {"success": False, "error": "Download failed"}
@@ -536,21 +784,21 @@ def download_with_ffmpeg(url, output_dir, format="mp4", custom_filename=None,
         # Security: Validate all inputs
         if not is_url(url):
             return {"success": False, "error": "Invalid URL"}
-        
+
         # Sanitize output directory and filename
         safe_output_dir = str(Path(output_dir).resolve())
         if custom_filename:
             filename = sanitize_filename(custom_filename)
         else:
             filename = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
+
         # Validate format
         allowed_formats = ['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv']
         if format not in allowed_formats:
             format = 'mp4'  # Default to safe format
-        
+
         output_file = os.path.join(safe_output_dir, f"{filename}.{format}")
-        
+
         # Build command with security considerations
         cmd = [
             "ffmpeg",
@@ -560,10 +808,10 @@ def download_with_ffmpeg(url, output_dir, format="mp4", custom_filename=None,
             "-reconnect_streamed", "1",
             "-reconnect_delay_max", "5"
         ]
-        
+
         if not verbose:
             cmd.extend(["-loglevel", "error"])
-        
+
         # Security: Validate and sanitize headers
         header_list = []
         if headers and isinstance(headers, dict):
@@ -574,37 +822,37 @@ def download_with_ffmpeg(url, output_dir, format="mp4", custom_filename=None,
                     safe_value = re.sub(r'[\r\n]', '', v)
                     if safe_key and safe_value:
                         header_list.append(f"{safe_key}: {safe_value}")
-        
+
         # Security: Validate cookies
         if cookies and isinstance(cookies, str):
             safe_cookies = re.sub(r'[\r\n]', '', cookies)
             if safe_cookies:
                 header_list.append(f"Cookie: {safe_cookies}")
-        
+
         # Security: Validate referer
         if referer and isinstance(referer, str) and is_url(referer):
             header_list.append(f"Referer: {referer}")
-        
+
         # Security: Validate user agent
         if user_agent and isinstance(user_agent, str):
             safe_ua = re.sub(r'[^\w\s\-\.\(\);:/]', '', user_agent)[:512]
             if safe_ua:
                 header_list.append(f"User-Agent: {safe_ua}")
-        
+
         # Add headers if any
         if header_list:
             headers_str = "\r\n".join(header_list) + "\r\n"
             cmd.extend(["-headers", headers_str])
-        
+
         # Add input and output
         cmd.extend(["-i", url, "-c", "copy", output_file])
-        
+
         # Execute with security measures
         logger.debug(f"Executing ffmpeg command: {' '.join(cmd[:5])}... [URL hidden]")
-        
+
         if progress_callback:
             progress_callback("Downloading media...")
-        
+
         # Use subprocess.run with timeout and security settings
         result = subprocess.run(
             cmd,
@@ -616,13 +864,16 @@ def download_with_ffmpeg(url, output_dir, format="mp4", custom_filename=None,
             env={"PATH": os.environ.get("PATH", "")},  # Minimal environment
             check=True
         )
-        
+
         if progress_callback:
-            progress_callback("Download completed successfully")
-        
+            try:
+                progress_callback("Download completed successfully")
+            except Exception as e:
+                logger.error(f"Error in progress callback: {e}")
+
         logger.info(f"Download completed: {output_file}")
         return {"success": True, "file": output_file}
-        
+
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Download timeout (30 minutes)"}
     except subprocess.CalledProcessError as e:
@@ -638,26 +889,44 @@ def download_with_ffmpeg(url, output_dir, format="mp4", custom_filename=None,
 
 def parse_stream_info(json_data):
     """Parse stream info from various JSON formats"""
+    # Just return the JSON data directly if it's a dictionary with a URL
+    if isinstance(json_data, dict) and 'url' in json_data:
+        logger.info("Using direct JSON data with URL")
+        return json_data
+        
     # Handle array format (from browser extension)
-    if isinstance(json_data, list) and len(json_data) > 0:
-        json_data = json_data[0]  # Take the first item
-    
-    # Handle nested 'info' structure
+    if isinstance(json_data, list):
+        if len(json_data) > 0:
+            item = json_data[0]  # Take the first item
+            if isinstance(item, dict) and 'url' in item:
+                logger.info("Using first item from JSON array")
+                return item
+            else:
+                logger.error("First item in JSON array doesn't have a URL")
+                return {"url": "", "error": "Missing URL in JSON array"}
+        else:
+            logger.error("Empty JSON array received")
+            return {"url": "", "error": "Empty JSON array"}
+
+    # Handle nested 'info' structure as a last resort
     if isinstance(json_data, dict) and 'info' in json_data:
-        info = json_data['info']
-        # Merge top-level url with info if needed
-        if 'url' not in info and 'url' in json_data:
-            info['url'] = json_data['url']
-        return info
-    
-    # Handle flat structure
-    return json_data
+        if isinstance(json_data['info'], dict):
+            info = dict(json_data['info'])  # Create a copy to avoid modifying the original
+            # Merge top-level url with info if needed
+            if 'url' not in info and 'url' in json_data:
+                info['url'] = json_data['url']
+            logger.info("Using info field from JSON")
+            return info
+
+    # If we got here, we couldn't find a valid structure
+    logger.error(f"Could not extract valid stream info from JSON: {type(json_data)}")
+    return {"url": "", "error": "Could not extract valid stream info from JSON"}
 
 def get_available_formats(url, headers=None, cookies=None, referer=None, user_agent=None):
     """Get available video formats and qualities for a URL"""
     try:
         cmd = ["yt-dlp", "--list-formats", "--no-warnings"]
-        
+
         # Add authentication if provided
         if cookies:
             fd, cookies_file = tempfile.mkstemp(suffix='.txt')
@@ -666,7 +935,7 @@ def get_available_formats(url, headers=None, cookies=None, referer=None, user_ag
                 with open(cookies_file, 'w') as f:
                     f.write("# Netscape HTTP Cookie File\n")
                     f.write("# This is a generated file! Do not edit.\n\n")
-                    
+
                     for cookie in cookies.split(';'):
                         cookie = cookie.strip()
                         if '=' in cookie:
@@ -675,43 +944,43 @@ def get_available_formats(url, headers=None, cookies=None, referer=None, user_ag
                             value = value.strip()
                             if name and value:
                                 f.write(f".youtube.com\tTRUE\t/\tTRUE\t2147483647\t{name}\t{value}\n")
-                
+
                 cmd.extend(["--cookies", cookies_file])
             except Exception as e:
                 logger.warning(f"Failed to create cookies file: {e}")
-        
+
         if headers:
             for key, value in headers.items():
                 cmd.extend(["--add-header", f"{key}:{value}"])
-        
+
         if referer:
             cmd.extend(["--referer", referer])
-        
+
         if user_agent:
             cmd.extend(["--user-agent", user_agent])
-        
+
         # Add YouTube-specific settings
         if is_youtube_url(url):
             cmd.extend([
                 "--extractor-args", "youtube:player_client=web,android",
                 "--extractor-args", "youtube:skip=translated_subs"
             ])
-        
+
         cmd.append(url)
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        
+
         if cookies and 'cookies_file' in locals():
             try:
                 os.remove(cookies_file)
             except:
                 pass
-        
+
         if result.returncode == 0:
             # Parse the format list to extract available qualities
             formats = []
             lines = result.stdout.split('\n')
-            
+
             for line in lines:
                 if 'mp4' in line or 'webm' in line:
                     # Extract resolution information
@@ -727,12 +996,12 @@ def get_available_formats(url, headers=None, cookies=None, referer=None, user_ag
                         formats.append('1440p')
                     elif '2160p' in line or '3840x2160' in line:
                         formats.append('2160p')
-            
+
             # Remove duplicates and sort by quality
             unique_formats = list(set(formats))
             quality_order = ['2160p', '1440p', '1080p', '720p', '480p', '360p']
             available_qualities = [q for q in quality_order if q in unique_formats]
-            
+
             return {
                 'success': True,
                 'available_qualities': available_qualities,
@@ -744,7 +1013,7 @@ def get_available_formats(url, headers=None, cookies=None, referer=None, user_ag
                 'error': result.stderr,
                 'available_qualities': []
             }
-            
+
     except Exception as e:
         logger.error(f"Failed to get available formats: {e}")
         return {
@@ -754,20 +1023,59 @@ def get_available_formats(url, headers=None, cookies=None, referer=None, user_ag
         }
 
 def download_video(stream_info, output_dir, format="mp4", quality="best", filename=None, verbose=False, progress_callback=None, **advanced_options):
+    logger.info(f"download_video called with output_dir={output_dir}, format={format}, quality={quality}")
+    logger.info(f"Advanced options: {advanced_options}")
+    
+    # Validate stream_info is a dictionary
+    if not isinstance(stream_info, dict):
+        logger.error(f"stream_info is not a dictionary: {type(stream_info)}")
+        return {"success": False, "error": "Invalid stream information format"}
+        
+    # Check for error from parse_stream_info
+    if 'error' in stream_info:
+        logger.error(f"Error in stream info: {stream_info['error']}")
+        return {"success": False, "error": stream_info['error']}
+        
     url = stream_info.get('url')
+    logger.info(f"URL from stream_info: {url[:30]}..." if url else "No URL found")
+    
     if not url or not is_url(url):
+        logger.error(f"Invalid or missing URL: {url}")
         return {"success": False, "error": "Invalid or missing URL"}
+        
     source_type = stream_info.get('sourceType', '')
+    logger.info(f"Source type: {source_type}")
+    
+    # Ensure headers is a dictionary
     headers = stream_info.get('headers', {})
+    if not isinstance(headers, dict):
+        logger.warning(f"Headers is not a dictionary: {type(headers)}, using empty dict instead")
+        headers = {}
+    logger.info(f"Headers: {headers.keys() if headers else 'None'}")
+        
+    # Get cookies and ensure it's a string
     cookies = stream_info.get('cookies', '')
+    logger.info(f"Cookies length: {len(cookies) if cookies else 0}")
+    if not isinstance(cookies, str):
+        logger.warning(f"Cookies is not a string: {type(cookies)}, converting to string")
+        try:
+            cookies = str(cookies)
+        except Exception as e:
+            logger.error(f"Failed to convert cookies to string: {e}")
+            cookies = ""
+            
+    # Clean up cookies if needed
+    if cookies:
+        cookies = cookies.replace('\n', '').replace('\r', '')
+        
     referer = stream_info.get('referer', stream_info.get('pageUrl', ''))
     user_agent = stream_info.get('userAgent', '')
-    
+
     # Check dependencies
     deps = check_dependencies()
     has_ytdlp = deps.get("yt-dlp", False)
     has_ffmpeg = deps.get("ffmpeg", False)
-    
+
     # Extract advanced options
     video_quality_advanced = advanced_options.get('videoQualityAdvanced', '')
     audio_quality = advanced_options.get('audioQuality', 'best')
@@ -785,11 +1093,11 @@ def download_video(stream_info, output_dir, format="mp4", quality="best", filena
     auto_subs = advanced_options.get('autoSubs', False)
     subtitle_langs = advanced_options.get('subtitleLangs', '')
     subtitle_format = advanced_options.get('subtitleFormat', 'best')
-    
+
     # Use advanced quality if specified, otherwise use simple quality
     effective_quality = video_quality_advanced if video_quality_advanced else quality
     effective_format = container_advanced if container_advanced else format
-    
+
     # Debug logging
     if verbose:
         logger.info(f"Download parameters:")
@@ -798,7 +1106,7 @@ def download_video(stream_info, output_dir, format="mp4", quality="best", filena
         logger.info(f"  Advanced quality: {video_quality_advanced}")
         logger.info(f"  Effective quality: {effective_quality}")
         logger.info(f"  Format: {effective_format}")
-    
+
     # Try different download methods based on source type and available tools
     if source_type == 'youtube' or 'youtube.com' in url or 'youtu.be' in url or source_type == 'vimeo' or 'vimeo.com' in url:
         if has_ytdlp:
@@ -826,11 +1134,11 @@ def download_video(stream_info, output_dir, format="mp4", quality="best", filena
             if result["success"]:
                 return result
             logger.info("yt-dlp failed, trying ffmpeg if available...")
-        
+
         if has_ffmpeg:
             logger.info(f"Trying ffmpeg for URL: {url}")
             return download_with_ffmpeg(url, output_dir, format, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
-        
+
         # If we get here, either both failed or neither tool is available
         if has_ytdlp or has_ffmpeg:
             return {"success": False, "error": "Unable to download with available tools"}

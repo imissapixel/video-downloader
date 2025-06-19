@@ -1,369 +1,540 @@
-{% extends "base.html" %}
+{% extends "base.html" %} {% block content %}
+<div class="container-fluid redesign-page py-4 py-lg-5">
+    <div class="row justify-content-center">
+        <div class="col-xl-7 col-lg-9 col-md-11">
+            <!-- Header -->
+            <header class="text-center mb-4">
+                <h1 class="display-2 page-title text-primary">
+                    <i class="bi bi-cloud-arrow-down-fill"></i>
+                </h1>
+                <p class="lead subtitle-text">
+                    Download any streaming media on your browser.
+                </p>
+            </header>
 
-{% block content %}
-<div class="row">
-    <div class="col-lg-8">
-        <!-- JSON Configuration -->
-        <div id="jsonMode" class="mode-section active">
-            <div class="form-section">
-                <h5><i class="bi bi-code-square"></i> JSON Configuration</h5>
-                <div class="mb-3">
-                    <textarea class="form-control json-textarea" id="jsonInput" rows="5" placeholder='{
+            <!-- Main Control Card -->
+            <div class="card shadow-lg mb-4">
+                <div class="card-body p-lg-5 p-4">
+                    <!-- JSON Configuration -->
+                    <div id="jsonMode" class="mode-section active">
+                        <h5 class="card-title mb-3 fw-semibold">
+                            <i class="bi bi-braces me-2"></i>JSON Configuration
+                        </h5>
+                        <div class="mb-3">
+                            <textarea
+                                class="form-control"
+                                id="jsonInput"
+                                rows="4"
+                                placeholder='{
   "url": "https://example.com/video.m3u8",
   "sourceType": "hls",
   "headers": {"Authorization": "Bearer token"},
   "cookies": "session_id=abc123; auth_token=xyz789",
   "userAgent": "Mozilla/5.0...",
   "referer": "https://example.com/page"
-}'></textarea>
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div class="form-text d-none d-md-block">Paste JSON from the Chrome extension</div>
-                        <div class="form-text d-block d-md-none">Paste media JSON</div>
-                        <div id="jsonValidation"></div>
+}
+
+// Or for YouTube:
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "sourceType": "youtube"
+}'
+                            ></textarea>
+                            <div
+                                class="d-flex justify-content-between align-items-center mt-2"
+                            >
+                                <div class="form-text">
+                                    Paste JSON from the Chrome extension
+                                </div>
+                                <div id="jsonValidation"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Download Options -->
+                    <div class="mt-4">
+                        <h5 class="card-title mb-3 fw-semibold">
+                            <i class="bi bi-sliders me-2"></i>Download Options
+                        </h5>
+                        <!-- Simple Options -->
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label for="quality" class="form-label"
+                                    >Quality</label
+                                >
+                                <select class="form-select" id="quality">
+                                    <option value="1080p">
+                                        1080p (Full HD)
+                                    </option>
+                                    <option value="720p" selected>
+                                        720p (HD)
+                                    </option>
+                                    <option value="480p">480p (SD)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="format" class="form-label"
+                                    >Format</label
+                                >
+                                <select class="form-select" id="format">
+                                    <option value="mp4">MP4 (Universal)</option>
+                                    <option value="webm">
+                                        WebM (Optimized)
+                                    </option>
+                                    <option value="mkv">MKV (Quality)</option>
+                                    <option value="mov">MOV (Apple)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="filename" class="form-label"
+                                    >Custom Filename</label
+                                >
+                                <input
+                                    type="text"
+                                    class="form-control"
+                                    id="filename"
+                                    placeholder="Optional (no extension)"
+                                />
+                            </div>
+                        </div>
+
+                        <!-- Advanced Options Accordion -->
+                        <div
+                            class="accordion accordion-flush mt-3"
+                            id="advancedAccordion"
+                        >
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="headingOne">
+                                    <button
+                                        class="accordion-button collapsed px-1"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#advancedOptions"
+                                        aria-expanded="false"
+                                        aria-controls="advancedOptions"
+                                    >
+                                        <i
+                                            class="bi bi-gear-wide-connected me-2"
+                                        ></i
+                                        >Advanced Options
+                                    </button>
+                                </h2>
+                                <div
+                                    id="advancedOptions"
+                                    class="accordion-collapse collapse"
+                                    aria-labelledby="headingOne"
+                                    data-bs-parent="#advancedAccordion"
+                                >
+                                    <div class="accordion-body">
+                                        <h6 class="subtitle-text fw-normal">
+                                            Fine-tune your download settings for
+                                            maximum control.
+                                        </h6>
+
+                                        <!-- Options -->
+                                        <div class="row g-3 mt-2">
+                                            <div class="col-md-3">
+                                                <label
+                                                    for="videoQualityAdvanced"
+                                                    class="form-label"
+                                                    >Specific Quality</label
+                                                ><select
+                                                    class="form-select"
+                                                    id="videoQualityAdvanced"
+                                                >
+                                                    <option value="">
+                                                        Use Simple
+                                                    </option>
+                                                    <option value="2160p">
+                                                        4K
+                                                    </option>
+                                                    <option value="1440p">
+                                                        2K
+                                                    </option>
+                                                    <option value="1080p60">
+                                                        1080p60
+                                                    </option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label
+                                                    for="audioQuality"
+                                                    class="form-label"
+                                                    >Audio Quality</label
+                                                ><select
+                                                    class="form-select"
+                                                    id="audioQuality"
+                                                >
+                                                    <option value="best">
+                                                        Best
+                                                    </option>
+                                                    <option value="192k">
+                                                        192k
+                                                    </option>
+                                                    <option value="128k">
+                                                        128k
+                                                    </option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label
+                                                    for="audioFormat"
+                                                    class="form-label"
+                                                    >Audio Format</label
+                                                ><select
+                                                    class="form-select"
+                                                    id="audioFormat"
+                                                >
+                                                    <option value="best">
+                                                        Best
+                                                    </option>
+                                                    <option value="aac">
+                                                        AAC
+                                                    </option>
+                                                    <option value="mp3">
+                                                        MP3
+                                                    </option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label
+                                                    for="containerAdvanced"
+                                                    class="form-label"
+                                                    >Adv. Formats</label
+                                                ><select
+                                                    class="form-select"
+                                                    id="containerAdvanced"
+                                                >
+                                                    <option value="">
+                                                        Use Simple
+                                                    </option>
+                                                    <option value="avi">
+                                                        AVI
+                                                    </option>
+                                                    <option value="flv">
+                                                        FLV
+                                                    </option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label
+                                                    for="subtitleLangs"
+                                                    class="form-label"
+                                                    >Subtitle Languages</label
+                                                ><input
+                                                    type="text"
+                                                    class="form-control"
+                                                    id="subtitleLangs"
+                                                    placeholder="en,es,fr or 'all'"
+                                                />
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label
+                                                    for="subtitleFormat"
+                                                    class="form-label"
+                                                    >Subtitle Format</label
+                                                ><select
+                                                    class="form-select"
+                                                    id="subtitleFormat"
+                                                >
+                                                    <option value="best">
+                                                        Best
+                                                    </option>
+                                                    <option value="srt">
+                                                        SRT
+                                                    </option>
+                                                    <option value="vtt">
+                                                        VTT
+                                                    </option>
+                                                </select>
+                                            </div>
+                                            <div
+                                                class="col-md-3 d-flex align-items-end"
+                                            >
+                                                <div class="form-check">
+                                                    <input
+                                                        class="form-check-input"
+                                                        type="checkbox"
+                                                        id="autoSubs"
+                                                    /><label
+                                                        class="form-check-label"
+                                                        for="autoSubs"
+                                                        >Auto-Subs</label
+                                                    >
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Toggles -->
+                                        <div class="row mt-3 g-3">
+                                            <div class="col-6 col-md-3">
+                                                <div
+                                                    class="form-check form-switch"
+                                                >
+                                                    <input
+                                                        class="form-check-input"
+                                                        type="checkbox"
+                                                        id="extractAudio"
+                                                    /><label
+                                                        class="form-check-label"
+                                                        for="extractAudio"
+                                                        >Audio Only</label
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <div
+                                                    class="form-check form-switch"
+                                                >
+                                                    <input
+                                                        class="form-check-input"
+                                                        type="checkbox"
+                                                        id="embedSubs"
+                                                    /><label
+                                                        class="form-check-label"
+                                                        for="embedSubs"
+                                                        >Embed Subs</label
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <div
+                                                    class="form-check form-switch"
+                                                >
+                                                    <input
+                                                        class="form-check-input"
+                                                        type="checkbox"
+                                                        id="embedThumbnail"
+                                                    /><label
+                                                        class="form-check-label"
+                                                        for="embedThumbnail"
+                                                        >Thumbnail</label
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <div
+                                                    class="form-check form-switch"
+                                                >
+                                                    <input
+                                                        class="form-check-input"
+                                                        type="checkbox"
+                                                        id="embedMetadata"
+                                                    /><label
+                                                        class="form-check-label"
+                                                        for="embedMetadata"
+                                                        >Metadata</label
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <div
+                                                    class="form-check form-switch"
+                                                >
+                                                    <input
+                                                        class="form-check-input"
+                                                        type="checkbox"
+                                                        id="verbose"
+                                                    /><label
+                                                        class="form-check-label"
+                                                        for="verbose"
+                                                        >Verbose Log</label
+                                                    >
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Download Options -->
-        <div class="form-section">
-            <h5><i class="bi bi-sliders"></i> Download Options</h5>
-            
-            <!-- Simple Options -->
-            <div class="row">
-                <div class="col-md-4">
-                    <label for="quality" class="form-label">Quality</label>
-                    <select class="form-select" id="quality">
-                        <option value="1080p">1080p (Full HD)</option>
-                        <option value="720p" selected>720p (HD)</option>
-                        <option value="480p">480p (SD)</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <label for="format" class="form-label">Format</label>
-                    <select class="form-select" id="format">
-                        <option value="mp4">MP4 (Universal)</option>
-                        <option value="webm">WebM (Web Optimized)</option>
-                        <option value="mkv">MKV (High Quality)</option>
-                        <option value="mov">MOV (Apple)</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <label for="filename" class="form-label">Custom Filename</label>
-                    <input type="text" class="form-control" id="filename" placeholder="Optional (without extension)">
-                </div>
+            <!-- Download Button -->
+            <div class="d-grid gap-2 mb-4">
+                <button
+                    type="button"
+                    class="btn btn-primary btn-lg shadow-sm"
+                    id="downloadBtn"
+                    disabled
+                >
+                    <i class="bi bi-cloud-download me-2"></i>Start Download
+                </button>
+                <small class="text-center subtitle-text" id="downloadBtnHelp"
+                    >Enter valid JSON to enable download</small
+                >
             </div>
 
-            <!-- Advanced Options Toggle -->
-            <div class="mt-3">
-                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="collapse" data-bs-target="#advancedOptions" aria-expanded="false" aria-controls="advancedOptions">
-                    <i class="bi bi-gear"></i> Advanced Options
-                    <i class="bi bi-chevron-down ms-1"></i>
+            <!-- Status Sections -->
+            <div
+                id="progressContainer"
+                class="card shadow-sm mb-4"
+                style="display: none"
+            >
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div
+                            class="spinner-border text-primary me-3"
+                            role="status"
+                            id="loadingSpinner"
+                        ></div>
+                        <div>
+                            <h5 class="card-title mb-0" id="statusMessage">
+                                Initializing...
+                            </h5>
+                            <small class="subtitle-text" id="statusDetails"
+                                >Please wait.</small
+                            >
+                        </div>
+                        <button
+                            type="button"
+                            class="btn-close ms-auto"
+                            aria-label="Cancel"
+                            id="cancelBtn"
+                        ></button>
+                    </div>
+                    <div class="progress" style="height: 8px">
+                        <div
+                            class="progress-bar progress-bar-striped progress-bar-animated"
+                            id="progressBar"
+                            role="progressbar"
+                            style="width: 0%"
+                            aria-valuenow="0"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                        ></div>
+                    </div>
+                </div>
+            </div>
+            <div
+                id="downloadSection"
+                class="card shadow-sm text-center p-4"
+                style="display: none"
+            >
+                <div class="card-body">
+                    <i
+                        class="bi bi-check-circle-fill text-success display-3 mb-3"
+                    ></i>
+                    <h5 class="card-title">Download Complete!</h5>
+                    <p class="subtitle-text">
+                        Your video is ready to be saved.
+                    </p>
+                    <div
+                        class="d-grid gap-2 d-sm-flex justify-content-sm-center"
+                    >
+                        <button
+                            type="button"
+                            class="btn btn-success btn-lg"
+                            id="downloadFileBtn"
+                        >
+                            <i class="bi bi-download me-2"></i>Download File</button
+                        ><button
+                            type="button"
+                            class="btn btn-outline-secondary"
+                            id="newDownloadBtn"
+                        >
+                            <i class="bi bi-plus-circle me-2"></i>Start New
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div
+                id="errorSection"
+                class="alert alert-danger d-flex align-items-center shadow-sm"
+                style="display: none !important"
+            >
+                <i
+                    class="bi bi-exclamation-triangle-fill flex-shrink-0 me-3"
+                ></i>
+                <div>
+                    <h6 class="alert-heading">Download Failed</h6>
+                    <span id="errorMessage"></span>
+                </div>
+                <button
+                    type="button"
+                    class="btn btn-outline-danger btn-sm ms-auto"
+                    id="retryBtn"
+                >
+                    <i class="bi bi-arrow-clockwise me-1"></i>Retry
                 </button>
             </div>
 
-            <!-- Advanced Options (Collapsible) -->
-            <div class="collapse mt-3" id="advancedOptions">
-                <div class="card card-body">
-                    <h6 class="card-title"><i class="bi bi-gear-fill"></i> Advanced Settings</h6>
-                    
-                    <!-- Audio & Video Details -->
-                    <div class="row">
-                        <div class="col-md-3">
-                            <label for="videoQualityAdvanced" class="form-label">Specific Quality</label>
-                            <select class="form-select" id="videoQualityAdvanced">
-                                <option value="">Use Simple Quality</option>
-                                <option value="2160p">4K (2160p)</option>
-                                <option value="1440p">2K (1440p)</option>
-                                <option value="1080p60">1080p 60fps</option>
-                                <option value="720p60">720p 60fps</option>
-                                <option value="360p">360p (Low)</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label for="audioQuality" class="form-label">Audio Quality</label>
-                            <select class="form-select" id="audioQuality">
-                                <option value="best">Best Available</option>
-                                <option value="320k">320 kbps (High)</option>
-                                <option value="192k">192 kbps (Medium)</option>
-                                <option value="128k">128 kbps (Low)</option>
-                                <option value="96k">96 kbps (Very Low)</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label for="audioFormat" class="form-label">Audio Format</label>
-                            <select class="form-select" id="audioFormat">
-                                <option value="best">Best Available</option>
-                                <option value="aac">AAC (Universal)</option>
-                                <option value="mp3">MP3 (Compatible)</option>
-                                <option value="opus">Opus (Efficient)</option>
-                                <option value="flac">FLAC (Lossless)</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label for="containerAdvanced" class="form-label">Advanced Formats</label>
-                            <select class="form-select" id="containerAdvanced">
-                                <option value="">Use Simple Format</option>
-                                <option value="avi">AVI (Legacy)</option>
-                                <option value="flv">FLV (Flash)</option>
-                                <option value="3gp">3GP (Mobile)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Download Control -->
-                    <div class="row mt-3">
-                        <div class="col-md-3">
-                            <label for="rateLimit" class="form-label">Rate Limit</label>
-                            <select class="form-select" id="rateLimit">
-                                <option value="">No Limit</option>
-                                <option value="10M">10 MB/s</option>
-                                <option value="5M">5 MB/s</option>
-                                <option value="2M">2 MB/s</option>
-                                <option value="1M">1 MB/s</option>
-                                <option value="500K">500 KB/s</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label for="retries" class="form-label">Retry Count</label>
-                            <select class="form-select" id="retries">
-                                <option value="10">10 (Default)</option>
-                                <option value="5">5</option>
-                                <option value="3">3</option>
-                                <option value="1">1</option>
-                                <option value="infinite">Infinite</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label for="concurrentFragments" class="form-label">Concurrent Downloads</label>
-                            <select class="form-select" id="concurrentFragments">
-                                <option value="1">1 (Default)</option>
-                                <option value="2">2</option>
-                                <option value="4">4</option>
-                                <option value="8">8</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="form-check mt-4">
-                                <input class="form-check-input" type="checkbox" id="keepFragments">
-                                <label class="form-check-label" for="keepFragments">
-                                    Keep Fragments
-                                </label>
+            <!-- History and Status -->
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title mb-3 fw-semibold">
+                                <i class="bi bi-clock-history me-2"></i>History
+                            </h5>
+                            <div
+                                id="jobHistory"
+                                class="job-history flex-grow-1"
+                            >
+                                <p class="text-center mt-3 subtitle-text">
+                                    No recent downloads
+                                </p>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- Feature Toggles -->
-                    <div class="row mt-3">
-                        <div class="col-md-4">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="extractAudio">
-                                <label class="form-check-label" for="extractAudio">
-                                    <i class="bi bi-music-note"></i> Extract Audio Only
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="embedSubs">
-                                <label class="form-check-label" for="embedSubs">
-                                    <i class="bi bi-chat-square-text"></i> Embed Subtitles
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="embedThumbnail">
-                                <label class="form-check-label" for="embedThumbnail">
-                                    <i class="bi bi-image"></i> Embed Thumbnail
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="row mt-2">
-                        <div class="col-md-4">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="embedMetadata">
-                                <label class="form-check-label" for="embedMetadata">
-                                    <i class="bi bi-tags"></i> Embed Metadata
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="writeSubs">
-                                <label class="form-check-label" for="writeSubs">
-                                    <i class="bi bi-file-text"></i> Download Subtitles
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="verbose">
-                                <label class="form-check-label" for="verbose">
-                                    <i class="bi bi-terminal"></i> Verbose Logging
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Subtitle Options -->
-                    <div class="row mt-3">
-                        <div class="col-md-6">
-                            <label for="subtitleLangs" class="form-label">Subtitle Languages</label>
-                            <input type="text" class="form-control" id="subtitleLangs" placeholder="en,es,fr or 'all'">
-                            <div class="form-text">Comma-separated language codes (e.g., en,es,fr) or 'all'</div>
-                        </div>
-                        <div class="col-md-3">
-                            <label for="subtitleFormat" class="form-label">Subtitle Format</label>
-                            <select class="form-select" id="subtitleFormat">
-                                <option value="best">Best Available</option>
-                                <option value="srt">SRT</option>
-                                <option value="vtt">VTT</option>
-                                <option value="ass">ASS</option>
-                                <option value="lrc">LRC</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="form-check mt-4">
-                                <input class="form-check-input" type="checkbox" id="autoSubs">
-                                <label class="form-check-label" for="autoSubs">
-                                    Auto-generated Subs
-                                </label>
+                            <div class="d-flex gap-2 mt-3 border-top pt-3">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-secondary"
+                                    id="refreshHistoryBtn"
+                                >
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                    Refresh</button
+                                ><button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-danger"
+                                    id="clearHistoryBtn"
+                                >
+                                    <i class="bi bi-trash"></i> Clear
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <!-- Download Button -->
-        <div class="mb-4">
-            <button type="button" class="btn btn-primary btn-lg w-100" id="downloadBtn" disabled>
-                <i class="bi bi-download"></i> Start Download
-            </button>
-            <small class="text-muted d-block text-center mt-2" id="downloadBtnHelp">
-                Please enter valid JSON configuration to enable download
-            </small>
-        </div>
-
-        <!-- Progress Section -->
-        <div id="progressContainer" class="progress-container">
-            <div class="form-section">
-                <h5><i class="bi bi-hourglass-split"></i> Download Status</h5>
-                
-                <!-- Loading Indicator -->
-                <div class="d-flex align-items-center mb-3">
-                    <div class="spinner-border text-primary me-3" role="status" id="loadingSpinner">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <div class="flex-grow-1">
-                        <div class="status-message fw-medium" id="statusMessage">Initializing download...</div>
-                        <small class="text-muted" id="statusDetails">Please wait while we process your request</small>
-                    </div>
-                </div>
-                
-                
-                <!-- Status Steps -->
-                <div class="download-steps">
-                    <div class="step-item" id="step-init">
-                        <i class="bi bi-circle-fill text-primary"></i>
-                        <span>Initializing download...</span>
-                    </div>
-                    <div class="step-item" id="step-extract">
-                        <i class="bi bi-circle text-muted"></i>
-                        <span>Extracting video information...</span>
-                    </div>
-                    <div class="step-item" id="step-download">
-                        <i class="bi bi-circle text-muted"></i>
-                        <span>Downloading media...</span>
-                    </div>
-                    <div class="step-item" id="step-process">
-                        <i class="bi bi-circle text-muted"></i>
-                        <span>Converting to H.264 and finalizing...</span>
-                    </div>
-                </div>
-                
-                <div class="mt-3">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="cancelBtn">
-                        <i class="bi bi-x-circle"></i> Cancel
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Download Section -->
-        <div id="downloadSection" class="download-section">
-            <div class="form-section">
-                <h5><i class="bi bi-check-circle text-success"></i> Download Complete</h5>
-                <p class="text-success">Your video has been downloaded successfully!</p>
-                <button type="button" class="btn btn-success" id="downloadFileBtn">
-                    <i class="bi bi-download"></i> Download File
-                </button>
-                <button type="button" class="btn btn-outline-secondary ms-2" id="newDownloadBtn">
-                    <i class="bi bi-plus-circle"></i> New Download
-                </button>
-            </div>
-        </div>
-
-        <!-- Error Section -->
-        <div id="errorSection" class="alert alert-danger" style="display: none;">
-            <h6><i class="bi bi-exclamation-triangle"></i> Download Failed</h6>
-            <div id="errorMessage"></div>
-            <button type="button" class="btn btn-outline-danger btn-sm mt-2" id="retryBtn">
-                <i class="bi bi-arrow-clockwise"></i> Retry
-            </button>
-        </div>
-    </div>
-
-    <div class="col-lg-4">
-        <!-- Job History -->
-        <div class="form-section">
-            <h5><i class="bi bi-clock-history"></i> Download History</h5>
-            <small class="text-muted d-block mb-2">
-                <i class="bi bi-shield-check"></i> Stored locally in your browser only
-            </small>
-            <div id="jobHistory" class="job-history">
-                <div class="text-muted text-center">No recent downloads</div>
-            </div>
-            <div class="d-flex gap-2 mt-2">
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="refreshHistoryBtn">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                </button>
-                <button type="button" class="btn btn-outline-danger btn-sm" id="clearHistoryBtn">
-                    <i class="bi bi-trash"></i> Clear
-                </button>
-            </div>
-        </div>
-
-        <!-- System Status -->
-        <div class="form-section">
-            <h5><i class="bi bi-gear"></i> System Status</h5>
-            <div class="row g-2">
-                <div class="col-12">
-                    <div class="status-card {% if dependencies['yt-dlp'] %}status-success{% else %}status-danger{% endif %}">
-                        <div class="d-flex align-items-center">
-                            <div class="flex-grow-1">
-                                <div class="fw-medium">yt-dlp</div>
-                                <small class="text-muted">Video downloader engine</small>
+                <div class="col-lg-6">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title mb-3 fw-semibold">
+                                <i class="bi bi-hdd-stack me-2"></i>System
+                                Status
+                            </h5>
+                            <div class="vstack gap-3">
+                                <div class="d-flex align-items-center">
+                                    <i
+                                        class="bi bi-youtube fs-4 me-3 text-danger"
+                                    ></i>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-medium">yt-dlp</div>
+                                        <small class="subtitle-text"
+                                            >Downloader Engine</small
+                                        >
+                                    </div>
+                                    <span
+                                        class="badge rounded-pill {% if dependencies['yt-dlp'] %}bg-success-subtle text-success-emphasis{% else %}bg-danger-subtle text-danger-emphasis{% endif %}"
+                                        >{% if dependencies['yt-dlp'] %}Ready{%
+                                        else %}Missing{% endif %}</span
+                                    >
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <i
+                                        class="bi bi-film fs-4 me-3 text-primary"
+                                    ></i>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-medium">FFmpeg</div>
+                                        <small class="subtitle-text"
+                                            >Media Processing</small
+                                        >
+                                    </div>
+                                    <span
+                                        class="badge rounded-pill {% if dependencies['ffmpeg'] %}bg-success-subtle text-success-emphasis{% else %}bg-warning-subtle text-warning-emphasis{% endif %}"
+                                        >{% if dependencies['ffmpeg'] %}Ready{%
+                                        else %}Optional{% endif %}</span
+                                    >
+                                </div>
                             </div>
-                            <span class="badge {% if dependencies['yt-dlp'] %}bg-success{% else %}bg-danger{% endif %}">
-                                {% if dependencies['yt-dlp'] %}Ready{% else %}Missing{% endif %}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-12">
-                    <div class="status-card {% if dependencies['ffmpeg'] %}status-success{% else %}status-warning{% endif %}">
-                        <div class="d-flex align-items-center">
-                            <div class="flex-grow-1">
-                                <div class="fw-medium">FFmpeg</div>
-                                <small class="text-muted">Media processing</small>
-                            </div>
-                            <span class="badge {% if dependencies['ffmpeg'] %}bg-success{% else %}bg-warning{% endif %}">
-                                {% if dependencies['ffmpeg'] %}Ready{% else %}Optional{% endif %}
-                            </span>
                         </div>
                     </div>
                 </div>
@@ -371,217 +542,6 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-let currentJobId = null;
-let statusInterval = null;
-
-// Mode switching
-document.querySelectorAll('input[name="inputMode"]').forEach(radio => {
-    radio.addEventListener('change', function() {
-        document.querySelectorAll('.mode-section').forEach(section => {
-            section.classList.remove('active');
-        });
-        document.getElementById(this.value + 'Mode').classList.add('active');
-    });
-});
-
-// JSON validation
-document.getElementById('validateJsonBtn').addEventListener('click', function() {
-    const jsonInput = document.getElementById('jsonInput').value;
-    const validationDiv = document.getElementById('jsonValidation');
-    
-    if (!jsonInput.trim()) {
-        validationDiv.innerHTML = '<div class="alert alert-warning">Please enter JSON to validate</div>';
-        return;
-    }
-    
-    fetch('/api/validate-json', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({json_string: jsonInput})
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.valid) {
-            validationDiv.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> Valid JSON</div>';
-        } else {
-            validationDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ${data.error}</div>`;
-        }
-    })
-    .catch(error => {
-        validationDiv.innerHTML = '<div class="alert alert-danger">Error validating JSON</div>';
-    });
-});
-
-// Download functionality
-document.getElementById('downloadBtn').addEventListener('click', function() {
-    const mode = document.querySelector('input[name="inputMode"]:checked').value;
-    let requestData = {
-        mode: mode,
-        quality: document.getElementById('quality').value,
-        format: document.getElementById('format').value,
-        filename: document.getElementById('filename').value,
-        verbose: document.getElementById('verbose').checked
-    };
-    
-    if (mode === 'simple') {
-        const url = document.getElementById('videoUrl').value.trim();
-        if (!url) {
-            alert('Please enter a video URL');
-            return;
-        }
-        requestData.url = url;
-    } else if (mode === 'json') {
-        const jsonInput = document.getElementById('jsonInput').value.trim();
-        if (!jsonInput) {
-            alert('Please enter JSON configuration');
-            return;
-        }
-        requestData.json_string = jsonInput;
-    }
-    
-    // Start download
-    fetch('/api/download', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            currentJobId = data.job_id;
-            showProgress();
-            startStatusPolling();
-        } else {
-            showError(data.error);
-        }
-    })
-    .catch(error => {
-        showError('Failed to start download: ' + error.message);
-    });
-});
-
-function showProgress() {
-    document.getElementById('progressContainer').style.display = 'block';
-    document.getElementById('downloadSection').style.display = 'none';
-    document.getElementById('errorSection').style.display = 'none';
-    document.getElementById('downloadBtn').disabled = true;
-}
-
-function showDownloadComplete() {
-    document.getElementById('progressContainer').style.display = 'none';
-    document.getElementById('downloadSection').style.display = 'block';
-    document.getElementById('errorSection').style.display = 'none';
-    document.getElementById('downloadBtn').disabled = false;
-    
-    // Set up download file button
-    document.getElementById('downloadFileBtn').onclick = function() {
-        window.open(`/api/download-file/${currentJobId}`, '_blank');
-    };
-}
-
-function showError(message) {
-    document.getElementById('progressContainer').style.display = 'none';
-    document.getElementById('downloadSection').style.display = 'none';
-    document.getElementById('errorSection').style.display = 'block';
-    document.getElementById('errorMessage').textContent = message;
-    document.getElementById('downloadBtn').disabled = false;
-    
-    if (statusInterval) {
-        clearInterval(statusInterval);
-        statusInterval = null;
-    }
-}
-
-function startStatusPolling() {
-    if (statusInterval) {
-        clearInterval(statusInterval);
-    }
-    
-    statusInterval = setInterval(function() {
-        if (!currentJobId) return;
-        
-        fetch(`/api/status/${currentJobId}`)
-        .then(response => response.json())
-        .then(data => {
-            updateProgress(data);
-            
-            if (data.status === 'completed') {
-                clearInterval(statusInterval);
-                statusInterval = null;
-                showDownloadComplete();
-                refreshJobHistory();
-            } else if (data.status === 'failed') {
-                clearInterval(statusInterval);
-                statusInterval = null;
-                showError(data.error || 'Download failed');
-                refreshJobHistory();
-            }
-        })
-        .catch(error => {
-            console.error('Error polling status:', error);
-        });
-    }, 1000);
-}
-
-function updateProgress(data) {
-    const progressBar = document.getElementById('progressBar');
-    const statusMessage = document.getElementById('statusMessage');
-    
-    progressBar.style.width = data.progress + '%';
-    progressBar.textContent = data.progress + '%';
-    statusMessage.textContent = data.message;
-    
-    // Update progress bar color based on status
-    progressBar.className = 'progress-bar';
-    if (data.status === 'completed') {
-        progressBar.classList.add('bg-success');
-    } else if (data.status === 'failed') {
-        progressBar.classList.add('bg-danger');
-    } else {
-        progressBar.classList.add('bg-primary');
-    }
-}
-
-// New download button
-document.getElementById('newDownloadBtn').addEventListener('click', function() {
-    document.getElementById('progressContainer').style.display = 'none';
-    document.getElementById('downloadSection').style.display = 'none';
-    document.getElementById('errorSection').style.display = 'none';
-    currentJobId = null;
-    
-    // Clear form
-    document.getElementById('videoUrl').value = '';
-    document.getElementById('jsonInput').value = '';
-    document.getElementById('filename').value = '';
-    document.getElementById('jsonValidation').innerHTML = '';
-});
-
-// Retry button
-document.getElementById('retryBtn').addEventListener('click', function() {
-    document.getElementById('downloadBtn').click();
-});
-
-// Cancel button
-document.getElementById('cancelBtn').addEventListener('click', function() {
-    if (statusInterval) {
-        clearInterval(statusInterval);
-        statusInterval = null;
-    }
-    
-    document.getElementById('progressContainer').style.display = 'none';
-    document.getElementById('downloadBtn').disabled = false;
-    currentJobId = null;
-});
-
-// Job history is now handled by the external VideoDownloader class in app.js
-// This provides better security and privacy by using localStorage
-</script>
+{% endblock %} {% block scripts %}
+<script src="{{ url_for('static', filename='js/downloader.js') }}"></script>
 {% endblock %}
