@@ -13,19 +13,24 @@ A comprehensive web-based interface for downloading videos from various platform
 ### 🔧 **Input Methods**
 - **Simple URL mode**: Just paste any video URL
 - **Advanced JSON mode**: Full metadata support with headers, cookies, authentication
+- **Batch downloads**: Support for multiple video downloads with JSON arrays
 - **JSON validation**: Real-time syntax checking and validation
 - **Chrome extension integration**: Direct API endpoints for seamless integration
 
 ### ⚙️ **Download Options**
 - **Quality selection**: Best, Medium (720p), Low (480p)
 - **Format options**: MP4, WebM, MKV, AVI
+- **Audio extraction**: Extract audio only with multiple format options (MP3, AAC, M4A, FLAC, WAV)
+- **Advanced options**: Video quality, audio quality, subtitle languages, thumbnail embedding
 - **Custom filenames** with automatic sanitization
 - **Verbose logging** for debugging
 
 ### 🎨 **User Interface**
 - **Responsive design** for desktop and mobile
+- **Dark/Light theme support** with persistent preference
 - **Real-time progress bars** with status messages
-- **Download history** with job tracking
+- **Download history** with job tracking and file availability status
+- **Advanced options panel** with collapsible sections
 - **Dependency status checking**
 - **Error handling** with retry functionality
 
@@ -97,6 +102,7 @@ Open your browser and go to: `http://localhost:5000`
 ### Advanced JSON Mode
 Perfect for videos requiring authentication or special headers:
 
+**Single Video:**
 ```json
 {
   "url": "https://example.com/protected-video.m3u8",
@@ -108,6 +114,20 @@ Perfect for videos requiring authentication or special headers:
   "cookies": "session_id=abc123; auth_token=xyz789",
   "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
+```
+
+**Batch Download (Multiple Videos):**
+```json
+[
+  {
+    "url": "https://youtube.com/watch?v=video1",
+    "title": "First Video"
+  },
+  {
+    "url": "https://youtube.com/watch?v=video2",
+    "title": "Second Video"
+  }
+]
 ```
 
 ### Chrome Extension Integration
@@ -178,11 +198,14 @@ window.open(`http://localhost:5000/api/download-file/${jobId}`)
 - Files are automatically cleaned up after 1 hour
 - Each download gets a unique directory
 
-### Security Considerations
-- Input validation for URLs and JSON
-- File path sanitization
-- Automatic cleanup of temporary files
-- Rate limiting (can be added)
+### Security Features
+- **Input validation** for URLs and JSON with comprehensive sanitization
+- **File path sanitization** to prevent directory traversal attacks
+- **Automatic cleanup** of temporary files after 1 hour
+- **Security headers** implementation (CSP, HSTS, etc.)
+- **Rate limiting** protection against abuse
+- **Cookie validation** and secure handling
+- **XSS protection** with input sanitization
 
 ## Troubleshooting
 
@@ -214,26 +237,31 @@ FLASK_ENV=development python app.py
 ### Project Structure
 ```
 video-downloader/
-├── app.py                 # Main Flask application
-├── video_downloader.py    # Core download functionality
-├── requirements.txt       # Python dependencies
-├── README.md             # This file
+├── app.py                    # Main Flask application
+├── video_downloader.py       # Core download functionality
+├── security_utils.py         # Security utilities
+├── requirements.txt          # Python dependencies
+├── README.md                # This file
 ├── templates/
-│   ├── base.html         # Base template
-│   └── index.html        # Main interface
+│   ├── base.html            # Base template with theme support
+│   └── index.html           # Main interface with advanced options
 └── static/
     ├── css/
-    │   └── custom.css    # Custom styles
+    │   └── custom.css       # Custom styles with dark theme
     ├── js/
-    │   └── app.js        # Frontend JavaScript
-    └── downloads/        # Temporary file storage
+    │   ├── app.js           # Legacy frontend JavaScript
+    │   ├── downloader.js    # Main download functionality
+    │   ├── theme.js         # Theme toggle functionality
+    │   └── theme-init.js    # Theme initialization
+    └── downloads/           # Temporary file storage
 ```
 
 ### Adding New Features
 1. Backend API endpoints in `app.py`
-2. Frontend functionality in `static/js/app.js`
+2. Frontend functionality in `static/js/downloader.js`
 3. UI components in `templates/index.html`
-4. Styling in `static/css/custom.css`
+4. Styling with theme support in `static/css/custom.css`
+5. Security features in `security_utils.py`
 
 ## License
 
