@@ -525,6 +525,30 @@ document.addEventListener("DOMContentLoaded", function () {
         const title = item.title || 'Unknown Title';
         const displayTitle = isMulti ? `📁 Batch (${videoCount} videos)` : `🎥 ${title}`;
         
+        // Check if file is still available (within 1 hour retention period)
+        const completedTime = new Date(item.completedAt);
+        const currentTime = new Date();
+        const hoursSinceCompletion = (currentTime - completedTime) / (1000 * 60 * 60);
+        const fileStillAvailable = hoursSinceCompletion < 1; // FILE_RETENTION_HOURS = 1
+        
+        // Create download button or expired notice
+        let downloadSection = '';
+        if (fileStillAvailable) {
+          downloadSection = `
+            <div class="ms-2 flex-shrink-0">
+              <button class="btn btn-sm btn-outline-primary" onclick="downloadFromHistory('${item.job_id}')">
+                <i class="bi bi-download"></i>
+              </button>
+            </div>
+          `;
+        } else {
+          downloadSection = `
+            <div class="ms-2 flex-shrink-0">
+              <span class="badge bg-secondary text-muted small">Expired</span>
+            </div>
+          `;
+        }
+        
         historyHtml += `
           <div class="history-item mb-2 p-2 border rounded">
             <div class="d-flex justify-content-between align-items-start">
@@ -539,11 +563,7 @@ document.addEventListener("DOMContentLoaded", function () {
                   ${quality} • ${format} • ${completedDate}
                 </div>
               </div>
-              <div class="ms-2 flex-shrink-0">
-                <button class="btn btn-sm btn-outline-primary" onclick="downloadFromHistory('${item.job_id}')">
-                  <i class="bi bi-download"></i>
-                </button>
-              </div>
+              ${downloadSection}
             </div>
           </div>
         `;
