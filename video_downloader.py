@@ -282,7 +282,7 @@ def download_with_ytdlp(url, output_dir, format="mp4", quality="best", custom_fi
                     logger.error(f"Error calling progress_callback: {e}")
                         
             result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
-                                        headers, cookies, referer, user_agent, verbose, progress_callback, strategy="with_cookies")
+                                        headers, cookies, referer, user_agent, verbose, progress_callback, strategy="with_cookies", **advanced_options)
             if result["success"]:
                 return result
                 
@@ -294,7 +294,7 @@ def download_with_ytdlp(url, output_dir, format="mp4", quality="best", custom_fi
                 logger.error(f"Error calling progress_callback: {e}")
                     
         result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
-                                    headers, None, referer, user_agent, verbose, progress_callback, strategy="no_auth")
+                                    headers, None, referer, user_agent, verbose, progress_callback, strategy="no_auth", **advanced_options)
         if result["success"]:
             return result
 
@@ -307,7 +307,7 @@ def download_with_ytdlp(url, output_dir, format="mp4", quality="best", custom_fi
                 logger.error(f"Error calling progress_callback: {e}")
                     
         result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
-                                    headers, cookies, referer, user_agent, verbose, progress_callback, strategy="alternative")
+                                    headers, cookies, referer, user_agent, verbose, progress_callback, strategy="alternative", **advanced_options)
         if result["success"]:
             return result
 
@@ -321,7 +321,7 @@ def download_with_ytdlp(url, output_dir, format="mp4", quality="best", custom_fi
                     logger.error(f"Error calling progress_callback: {e}")
                         
             result = _try_ytdlp_download(url, output_dir, format, quality, custom_filename,
-                                        headers, None, referer, user_agent, verbose, progress_callback, strategy="browser_cookies")
+                                        headers, None, referer, user_agent, verbose, progress_callback, strategy="browser_cookies", **advanced_options)
             if result["success"]:
                 return result
         except Exception as e:
@@ -415,7 +415,11 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
         
         if custom_filename:
             safe_filename = sanitize_filename(custom_filename)
-            output_template = os.path.join(safe_output_dir, f"{safe_filename}.%(ext)s")
+            if advanced_options.get('extractAudio', False):
+                # For audio extraction, let yt-dlp handle the extension
+                output_template = os.path.join(safe_output_dir, f"{safe_filename}.%(ext)s")
+            else:
+                output_template = os.path.join(safe_output_dir, f"{safe_filename}.%(ext)s")
         else:
             output_template = os.path.join(safe_output_dir, "%(title)s.%(ext)s")
             
@@ -425,43 +429,50 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
         if verbose:
             logger.info(f"Selecting format for quality: {quality}")
 
-        # Validate format selection using best practices from yt-dlp documentation
-        if quality == "2160p":
-            # 4K quality - prioritize H.264 codec for compatibility
-            format_selection = "bestvideo[height<=2160][vcodec^=avc1]+bestaudio/bestvideo[height<=2160][vcodec^=h264]+bestaudio/bestvideo[height<=2160]+bestaudio/best[height<=2160]"
-        elif quality == "1440p":
-            # 2K quality - prioritize H.264 codec for compatibility
-            format_selection = "bestvideo[height<=1440][vcodec^=avc1]+bestaudio/bestvideo[height<=1440][vcodec^=h264]+bestaudio/bestvideo[height<=1440]+bestaudio/best[height<=1440]"
-        elif quality == "1080p":
-            # 1080p quality - prioritize H.264 codec for compatibility
-            format_selection = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][vcodec^=h264]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
-        elif quality == "1080p60":
-            # 1080p 60fps - prioritize H.264 codec for compatibility
-            format_selection = "bestvideo[height<=1080][fps>=50][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][fps>=50][vcodec^=h264]+bestaudio/bestvideo[height<=1080][fps>=50]+bestaudio/best[height<=1080][fps>=50]"
-        elif quality == "720p":
-            # 720p quality - prioritize H.264 codec for compatibility
-            format_selection = "bestvideo[height<=720][vcodec^=avc1]+bestaudio/bestvideo[height<=720][vcodec^=h264]+bestaudio/bestvideo[height<=720]+bestaudio/best[height<=720]"
-        elif quality == "720p60":
-            # 720p 60fps - prioritize H.264 codec for compatibility
-            format_selection = "bestvideo[height<=720][fps>=50][vcodec^=avc1]+bestaudio/bestvideo[height<=720][fps>=50][vcodec^=h264]+bestaudio/bestvideo[height<=720][fps>=50]+bestaudio/best[height<=720][fps>=50]"
-        elif quality == "480p":
-            # 480p quality - prioritize H.264 codec for compatibility
-            format_selection = "bestvideo[height<=480][vcodec^=avc1]+bestaudio/bestvideo[height<=480][vcodec^=h264]+bestaudio/bestvideo[height<=480]+bestaudio/best[height<=480]"
-        elif quality == "360p":
-            # 360p quality - prioritize H.264 codec for compatibility
-            format_selection = "bestvideo[height<=360][vcodec^=avc1]+bestaudio/bestvideo[height<=360][vcodec^=h264]+bestaudio/bestvideo[height<=360]+bestaudio/best[height<=360]"
-        elif quality == "best":
-            # Best quality available - no restrictions
-            format_selection = "bestvideo+bestaudio/best"
+        # Check for audio-only extraction first
+        if advanced_options.get('extractAudio', False):
+            # For audio extraction, use bestaudio format as per yt-dlp documentation
+            # Use more specific format selection to avoid downloading video
+            format_selection = "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio[ext=mp3]/bestaudio"
+            if verbose:
+                logger.info("Audio-only mode: Using specific bestaudio format selection")
         else:
-            # Fallback for any other quality - default to 1080p
-            format_selection = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][vcodec^=h264]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+            # Validate format selection using best practices from yt-dlp documentation
+            if quality == "2160p":
+                # 4K quality - prioritize H.264 codec for compatibility
+                format_selection = "bestvideo[height<=2160][vcodec^=avc1]+bestaudio/bestvideo[height<=2160][vcodec^=h264]+bestaudio/bestvideo[height<=2160]+bestaudio/best[height<=2160]"
+            elif quality == "1440p":
+                # 2K quality - prioritize H.264 codec for compatibility
+                format_selection = "bestvideo[height<=1440][vcodec^=avc1]+bestaudio/bestvideo[height<=1440][vcodec^=h264]+bestaudio/bestvideo[height<=1440]+bestaudio/best[height<=1440]"
+            elif quality == "1080p":
+                # 1080p quality - prioritize H.264 codec for compatibility
+                format_selection = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][vcodec^=h264]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+            elif quality == "1080p60":
+                # 1080p 60fps - prioritize H.264 codec for compatibility
+                format_selection = "bestvideo[height<=1080][fps>=50][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][fps>=50][vcodec^=h264]+bestaudio/bestvideo[height<=1080][fps>=50]+bestaudio/best[height<=1080][fps>=50]"
+            elif quality == "720p":
+                # 720p quality - prioritize H.264 codec for compatibility
+                format_selection = "bestvideo[height<=720][vcodec^=avc1]+bestaudio/bestvideo[height<=720][vcodec^=h264]+bestaudio/bestvideo[height<=720]+bestaudio/best[height<=720]"
+            elif quality == "720p60":
+                # 720p 60fps - prioritize H.264 codec for compatibility
+                format_selection = "bestvideo[height<=720][fps>=50][vcodec^=avc1]+bestaudio/bestvideo[height<=720][fps>=50][vcodec^=h264]+bestaudio/bestvideo[height<=720][fps>=50]+bestaudio/best[height<=720][fps>=50]"
+            elif quality == "480p":
+                # 480p quality - prioritize H.264 codec for compatibility
+                format_selection = "bestvideo[height<=480][vcodec^=avc1]+bestaudio/bestvideo[height<=480][vcodec^=h264]+bestaudio/bestvideo[height<=480]+bestaudio/best[height<=480]"
+            elif quality == "360p":
+                # 360p quality - prioritize H.264 codec for compatibility
+                format_selection = "bestvideo[height<=360][vcodec^=avc1]+bestaudio/bestvideo[height<=360][vcodec^=h264]+bestaudio/bestvideo[height<=360]+bestaudio/best[height<=360]"
+            elif quality == "best":
+                # Best quality available - no restrictions
+                format_selection = "bestvideo+bestaudio/best"
+            else:
+                # Fallback for any other quality - default to 1080p
+                format_selection = "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080][vcodec^=h264]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
 
         # Build command based on strategy and yt-dlp documentation
         cmd = [
             "yt-dlp",
             "--format", format_selection,
-            "--merge-output-format", format,
             "--output", output_template,
             "--no-playlist",            # Don't download playlists
             "--no-check-certificate",   # Avoid certificate issues
@@ -478,10 +489,16 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
             "--console-title"           # Show progress in console title
         ]
 
+        # Add merge-output-format only for video downloads (not audio-only)
+        if not advanced_options.get('extractAudio', False):
+            cmd.extend(["--merge-output-format", format])
+
         # Debug: Log the exact command being executed
         if verbose:
             logger.info(f"Format selection string: {format_selection}")
-            logger.info(f"Full yt-dlp command: {' '.join(cmd[:10])}...")  # Show first part of command
+            logger.info(f"Extract audio option: {advanced_options.get('extractAudio', False)}")
+            logger.info(f"Audio format: {advanced_options.get('audioFormat', 'mp3')}")
+            logger.info(f"Full yt-dlp command: {' '.join(cmd[:15])}...")  # Show more of the command
 
         # Add strategy-specific options
         if strategy == "no_auth":
@@ -534,12 +551,18 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
         # Audio extraction
         if advanced_options.get('extractAudio', False):
             cmd.append("--extract-audio")
-            audio_format = advanced_options.get('audioFormat', 'best')
+            # Default to mp3 for better user experience when audio format is not specified
+            audio_format = advanced_options.get('audioFormat', 'mp3')
             if audio_format != 'best':
                 cmd.extend(["--audio-format", audio_format])
+            else:
+                # When 'best' is selected, default to mp3 for compatibility
+                cmd.extend(["--audio-format", "mp3"])
             audio_quality = advanced_options.get('audioQuality', 'best')
             if audio_quality != 'best':
                 cmd.extend(["--audio-quality", audio_quality])
+            # Force keep video to false for audio-only downloads
+            cmd.append("--no-keep-video")
 
         # Subtitle options - following yt-dlp documentation
         if advanced_options.get('writeSubs', False):
@@ -719,7 +742,18 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
                                 elif 'Merging formats' in line or 'Post-processing' in line:
                                     if progress_callback:
                                         try:
-                                            progress_callback("Converting to H.264 and finalizing...")
+                                            if advanced_options.get('extractAudio', False):
+                                                progress_callback("Extracting audio...")
+                                            else:
+                                                progress_callback("Converting to H.264 and finalizing...")
+                                        except Exception as e:
+                                            logger.error(f"Error in progress callback: {e}")
+                                
+                                # Handle audio extraction specifically
+                                elif 'Extracting audio' in line or '[ExtractAudio]' in line:
+                                    if progress_callback:
+                                        try:
+                                            progress_callback("Extracting audio from downloaded media...")
                                         except Exception as e:
                                             logger.error(f"Error in progress callback: {e}")
                                             
@@ -747,13 +781,92 @@ def _try_ytdlp_download(url, output_dir, format="mp4", quality="best", custom_fi
             return {"success": False, "error": "Download timeout (30 minutes)"}
 
         if process.returncode == 0:
+            logger.info("Download completed successfully.")
+            
+            # Check if audio extraction is needed and yt-dlp might have failed to extract audio
+            if advanced_options.get('extractAudio', False):
+                # Check what files were actually created
+                audio_files = []
+                video_files = []
+                
+                # Look for files in the output directory
+                for file in os.listdir(safe_output_dir):
+                    file_path = os.path.join(safe_output_dir, file)
+                    if os.path.isfile(file_path):
+                        # Check if it's an audio file
+                        if file.lower().endswith(('.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac')):
+                            audio_files.append(file_path)
+                        elif file.lower().endswith(('.mp4', '.mkv', '.webm', '.avi', '.mov')):
+                            video_files.append(file_path)
+                
+                # If we have video files but no audio files, extract audio using ffmpeg
+                if video_files and not audio_files:
+                    # Check if ffmpeg is available
+                    try:
+                        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+                        has_ffmpeg = True
+                    except (subprocess.CalledProcessError, FileNotFoundError):
+                        has_ffmpeg = False
+                        logger.warning("FFmpeg not available for audio extraction")
+                    
+                    if has_ffmpeg:
+                        if progress_callback:
+                            try:
+                                progress_callback("Extracting audio using ffmpeg...")
+                            except Exception as e:
+                                logger.error(f"Error in progress callback: {e}")
+                        
+                        # Use ffmpeg to extract audio from the video file
+                        video_file = video_files[0]  # Use the first video file
+                        audio_format = advanced_options.get('audioFormat', 'mp3')
+                        if audio_format == 'best':
+                            audio_format = 'mp3'  # Default to mp3
+                        
+                        # Generate audio filename
+                        base_name = os.path.splitext(os.path.basename(video_file))[0]
+                        audio_file = os.path.join(safe_output_dir, f"{base_name}.{audio_format}")
+                        
+                        try:
+                            # Build ffmpeg command for audio extraction
+                            ffmpeg_cmd = ["ffmpeg", "-y", "-i", video_file, "-vn"]  # No video
+                            
+                            # Add audio codec based on format
+                            if audio_format == 'mp3':
+                                ffmpeg_cmd.extend(["-acodec", "libmp3lame", "-q:a", "2"])
+                            elif audio_format == 'aac':
+                                ffmpeg_cmd.extend(["-acodec", "aac", "-q:a", "2"])
+                            elif audio_format == 'm4a':
+                                ffmpeg_cmd.extend(["-acodec", "aac", "-q:a", "2"])
+                            else:
+                                # Default to mp3
+                                ffmpeg_cmd.extend(["-acodec", "libmp3lame", "-q:a", "2"])
+                            
+                            ffmpeg_cmd.append(audio_file)
+                            
+                            logger.info(f"Extracting audio with ffmpeg: {' '.join(ffmpeg_cmd[:5])}...")
+                            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=300)
+                            
+                            if result.returncode == 0:
+                                logger.info(f"Audio extracted successfully: {audio_file}")
+                                # Remove the video file to only keep audio
+                                try:
+                                    os.remove(video_file)
+                                    logger.info(f"Removed video file: {video_file}")
+                                except Exception as e:
+                                    logger.warning(f"Could not remove video file: {e}")
+                            else:
+                                logger.error(f"FFmpeg audio extraction failed: {result.stderr}")
+                                
+                        except Exception as e:
+                            logger.error(f"Error during ffmpeg audio extraction: {e}")
+            
             if progress_callback:
                 try:
                     progress_callback("Download completed successfully")
                     logger.info("Final progress callback called")
                 except Exception as e:
                     logger.error(f"Error in final progress callback: {e}")
-            logger.info("Download completed successfully.")
+            
             return {"success": True, "file": "Downloaded"}
         else:
             # Sanitize error message
@@ -1118,12 +1231,12 @@ def download_video(stream_info, output_dir, format="mp4", quality="best", filena
             return download_with_ffmpeg(url, output_dir, format, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
         elif has_ytdlp:
             # Try yt-dlp as fallback for HLS/DASH
-            return download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
+            return download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose, progress_callback, **advanced_options)
         else:
             return {"success": False, "error": "ffmpeg or yt-dlp is required for this URL but neither is installed"}
     elif is_supported_by_ytdlp(url):
         if has_ytdlp:
-            return download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose, progress_callback)
+            return download_with_ytdlp(url, output_dir, format, quality, filename, headers, cookies, referer, user_agent, verbose, progress_callback, **advanced_options)
         else:
             return {"success": False, "error": "yt-dlp is required for this URL but not installed"}
     else:

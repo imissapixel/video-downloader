@@ -88,16 +88,17 @@
                                     <option value="mov">MOV (Apple)</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
-                                <label for="filename" class="form-label"
-                                    >Custom Filename</label
-                                >
-                                <input
-                                    type="text"
-                                    class="form-control"
-                                    id="filename"
-                                    placeholder="Optional (no extension)"
-                                />
+                            <div class="col-md-4 d-flex align-items-end">
+                                <div class="form-check form-switch">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        id="extractAudio"
+                                    />
+                                    <label class="form-check-label" for="extractAudio">
+                                        Audio Only
+                                    </label>
+                                </div>
                             </div>
                         </div>
 
@@ -219,7 +220,19 @@
                                                     </option>
                                                 </select>
                                             </div>
-                                            <div class="col-md-6">
+                                        </div>
+                                        <!-- Second Row -->
+                                        <div class="row g-3 mt-3">
+                                            <div class="col-md-3">
+                                                <label for="filename" class="form-label">Custom Filename</label>
+                                                <input
+                                                    type="text"
+                                                    class="form-control"
+                                                    id="filename"
+                                                    placeholder="Optional (no extension)"
+                                                />
+                                            </div>
+                                            <div class="col-md-3">
                                                 <label
                                                     for="subtitleLangs"
                                                     class="form-label"
@@ -269,21 +282,6 @@
                                         </div>
                                         <!-- Toggles -->
                                         <div class="row mt-3 g-3">
-                                            <div class="col-6 col-md-3">
-                                                <div
-                                                    class="form-check form-switch"
-                                                >
-                                                    <input
-                                                        class="form-check-input"
-                                                        type="checkbox"
-                                                        id="extractAudio"
-                                                    /><label
-                                                        class="form-check-label"
-                                                        for="extractAudio"
-                                                        >Audio Only</label
-                                                    >
-                                                </div>
-                                            </div>
                                             <div class="col-6 col-md-3">
                                                 <div
                                                     class="form-check form-switch"

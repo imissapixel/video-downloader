@@ -293,12 +293,21 @@ document.addEventListener("DOMContentLoaded", function () {
                   'Unknown Title';
         }
         
+        // Determine actual format and quality based on settings
+        const isAudioOnly = document.getElementById("extractAudio").checked;
+        const actualFormat = isAudioOnly ? 
+          (document.getElementById("audioFormat").value === 'best' ? 'mp3' : document.getElementById("audioFormat").value) : 
+          document.getElementById("format").value;
+        const actualQuality = isAudioOnly ? 
+          (document.getElementById("audioQuality").value === 'best' ? 'High' : document.getElementById("audioQuality").value) : 
+          document.getElementById("quality").value;
+        
         const historyItem = {
           job_id: currentJobId,
           url: parsedJson.url || 'Unknown URL',
           title: title,
-          quality: document.getElementById("quality").value,
-          format: document.getElementById("format").value,
+          quality: actualQuality,
+          format: actualFormat,
           completedAt: new Date().toISOString(),
           is_multi: Array.isArray(parsedJson),
           video_count: Array.isArray(parsedJson) ? parsedJson.length : 1
